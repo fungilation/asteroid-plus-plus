@@ -1,0 +1,1501 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Asteroids - Arcade Classic</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        font-family: "Courier New", monospace;
+      }
+      canvas {
+        display: block;
+      }
+      #ui-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        pointer-events: none;
+      }
+      #start-screen,
+      #game-over-screen {
+        text-align: center;
+        color: #fff;
+        pointer-events: auto;
+      }
+      #start-screen h1 {
+        font-size: clamp(36px, 6vw, 64px);
+        color: #fff;
+        text-shadow:
+          0 0 20px #fff,
+          0 0 40px #888;
+        margin-bottom: 20px;
+        letter-spacing: 8px;
+      }
+      #start-screen p,
+      #game-over-screen p {
+        font-size: clamp(14px, 1.8vw, 18px);
+        color: #aaa;
+        margin: 10px 0;
+      }
+      .blink {
+        animation: blink 1s infinite;
+        font-size: clamp(18px, 2.2vw, 24px);
+        color: #fff;
+        margin-top: 30px;
+      }
+      @keyframes blink {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0;
+        }
+      }
+      #game-over-screen h1 {
+        font-size: clamp(36px, 5vw, 48px);
+        color: #f00;
+        text-shadow: 0 0 20px #f00;
+        margin-bottom: 20px;
+      }
+      #game-over-screen .score {
+        font-size: clamp(24px, 3vw, 32px);
+        color: #fff;
+        margin: 20px 0;
+      }
+      .controls-info {
+        font-size: clamp(11px, 1.3vw, 14px);
+        color: #666;
+        margin-top: 30px;
+        line-height: 2;
+        text-align: left;
+        display: inline-block;
+      }
+      .controls-info .key {
+        color: #0ff;
+        font-weight: bold;
+      }
+      .controls-info .section {
+        color: #888;
+        margin-top: 8px;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-overlay">
+      <div id="start-screen">
+        <h1>ASTEROIDS</h1>
+        <p>Destroy all asteroids to advance</p>
+        <p class="blink">PRESS SPACE TO START</p>
+        <div class="controls-info">
+          <span class="section">— NAVIGATION —</span>
+          <span class="key">← →</span> ROTATE &nbsp;|&nbsp;
+          <span class="key">↑</span> THRUST<br />
+          <span class="key">SPACE</span> FIRE<br />
+          <span class="key">Z</span> PORTAL (30s cooldown, jumps half screen
+          forward)<br />
+          <span class="section">— POWERS —</span>
+          <span class="key">X</span> DEPLOY MINE (carry 3, arms after you
+          leave)<br />
+          <span class="key">C</span> SPREAD SHOT (30s)<br />
+          <span class="key">V</span> SHIELD (20s, once per life)<br />
+          <span class="key">B</span> BOMB (hits all asteroids)<br />
+          <span class="key">N</span> EXTENDED RANGE (30s)<br />
+          <span class="key">M</span> TIME SLOW (16s)<br />
+          <span class="section">— OTHER —</span>
+          <span class="key">P</span> PAUSE &nbsp;|&nbsp;
+          <span class="key">R</span> RESTART
+        </div>
+      </div>
+      <div id="game-over-screen" style="display: none">
+        <h1>GAME OVER</h1>
+        <div class="score" id="final-score"></div>
+        <p id="final-level"></p>
+        <p class="blink">PRESS SPACE TO RESTART</p>
+      </div>
+    </div>
+
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      resizeCanvas();
+      window.addEventListener("resize", resizeCanvas);
+
+      // ─── CONSTANTS ───
+      const FPS = 60;
+      const SHIP_SIZE = 20;
+      const SHIP_THRUST = 0.075;
+      const SHIP_TURN_SPEED = 0.07;
+      const BULLET_SPEED = 8;
+      const BULLET_LIFE = 55;
+      const BASE_ASTEROID_VEL = 0.75;
+      const INVINCIBLE_TIME = 180;
+      const PORTAL_COOLDOWN = 1800; // 30s
+
+      // Mine settings
+      const MINE_MAX = 3;
+      const MINE_EXPLOSION_RADIUS = 70;
+      const MINE_EXPLOSION_TIME = 60;
+      const MINE_LIFETIME = 7200; // 120s
+      const MINE_ARM_TIME = 90; // 1.5s to arm
+      const MINE_ARM_DISTANCE = 80; // need to be this far away to arm
+      const MINE_BLINK_RATE = 0.15; // blink frequency during arming
+
+      // Power-up durations (doubled)
+      const POWER_SPREAD = 1800; // 30s
+      const POWER_SHIELD = 1200; // 20s
+      const POWER_EXTENDED = 1800; // 30s
+      const POWER_TIME_SLOW = 960; // 16s
+
+      // Power-up spawn interval & lifetime (doubled)
+      const POWERUP_SPAWN_INTERVAL = 1200; // ~20s
+      const POWERUP_LIFETIME = 1200; // 20s to collect
+
+      // Difficulty scaling
+      function getCanvasSpeedFactor() {
+        const area = canvas.width * canvas.height;
+        const referenceArea = 1600 * 900;
+        if (area > referenceArea * 1.5) {
+          return Math.max(0.4, 1.0 - Math.log(area / referenceArea) * 0.3);
+        }
+        return 1.0;
+      }
+
+      // ─── GAME STATE ───
+      let gameState = "start";
+      let score = 0;
+      let lives = 3;
+      let level = 0;
+      let highScore = parseInt(localStorage.getItem("asteroidsHighScore")) || 0;
+      let ship, bullets, asteroids, particles, floatingTexts, mines, powerups;
+      let keys = {};
+      let shootCooldown = 0;
+      let shipInvincible = 0;
+      let respawnInvincible = false; // Separate flag for respawn blink
+      let levelTransition = 0;
+      let screenShake = 0;
+      let portalCooldown = 0;
+      let mineCount = 0;
+      let powerupSpawnTimer = 0;
+      let timeSlowFactor = 1;
+      let spreadShotTimer = 0;
+      let extendedRangeTimer = 0;
+      let shieldTimer = 0;
+      let bombUsed = false;
+      let shieldUsed = false;
+      let powerupFlashTimer = 0;
+
+      // ─── OBJECT CREATION ───
+      function createShip() {
+        return {
+          x: canvas.width / 2,
+          y: canvas.height / 2,
+          vx: 0,
+          vy: 0,
+          angle: -Math.PI / 2,
+          radius: SHIP_SIZE,
+          thrusting: false,
+          thrustFlicker: 0,
+          alive: true,
+          explodeTimer: 0,
+        };
+      }
+
+      function createAsteroid(x, y, size) {
+        const sizes = ["large", "medium", "small"];
+        const sizeIdx = sizes.indexOf(size);
+        const radii = [40, 22, 12];
+        const r = radii[sizeIdx];
+        const speedFactor = getCanvasSpeedFactor();
+        const levelMult = 1 + level * 0.1; // Increased scaling per level
+        const speed =
+          ((BASE_ASTEROID_VEL + Math.random() * 1.3) *
+            speedFactor *
+            levelMult) /
+          (1 + sizeIdx * 0.5);
+        const angle = Math.random() * Math.PI * 2;
+
+        const vertices = [];
+        const numVerts = 8 + Math.floor(Math.random() * 5);
+        for (let i = 0; i < numVerts; i++) {
+          const a = (i / numVerts) * Math.PI * 2;
+          const variation = 0.7 + Math.random() * 0.6;
+          vertices.push({
+            x: Math.cos(a) * r * variation,
+            y: Math.sin(a) * r * variation,
+          });
+        }
+
+        return {
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: r,
+          vertices,
+          rotationSpeed: (Math.random() - 0.5) * 0.04,
+          rotation: Math.random() * Math.PI * 2,
+          size,
+          points: size === "large" ? 20 : size === "medium" ? 50 : 100,
+        };
+      }
+
+      function createMine(x, y) {
+        return {
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 0.3,
+          vy: (Math.random() - 0.5) * 0.3,
+          radius: 10,
+          life: MINE_LIFETIME,
+          arming: true,
+          armTimer: MINE_ARM_TIME,
+          armed: false,
+          exploding: false,
+          explodeTimer: 0,
+          pulsePhase: Math.random() * Math.PI * 2,
+        };
+      }
+
+      function createPowerup(x, y, type) {
+        const types = [
+          "spread",
+          "shield",
+          "bomb",
+          "extended",
+          "time_slow",
+          "mine",
+        ];
+        const typeIdx = types.indexOf(type);
+        const colors = ["#0f0", "#0ff", "#f00", "#ff0", "#f0f", "#f80"];
+        const labels = ["≡", "○", "●", "⌇", "∞", "◆"];
+        return {
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 0.5,
+          vy: (Math.random() - 0.5) * 0.5,
+          radius: 12,
+          life: POWERUP_LIFETIME,
+          type,
+          color: colors[typeIdx],
+          label: labels[typeIdx],
+          pulsePhase: Math.random() * Math.PI * 2,
+        };
+      }
+
+      function createExplosion(x, y, count, color, speed) {
+        for (let i = 0; i < count; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const spd = Math.random() * speed;
+          particles.push({
+            x,
+            y,
+            vx: Math.cos(angle) * spd,
+            vy: Math.sin(angle) * spd,
+            life: 30 + Math.random() * 30,
+            maxLife: 60,
+            color: color || "#fff",
+            size: 1 + Math.random() * 2,
+          });
+        }
+      }
+
+      function createFloatingText(x, y, text, color) {
+        floatingTexts.push({
+          x,
+          y,
+          text,
+          color: color || "#fff",
+          life: 60,
+          maxLife: 60,
+        });
+      }
+
+      function createPortalEffect(x, y, angle, entering) {
+        const count = entering ? 20 : 20;
+        for (let i = 0; i < count; i++) {
+          const spread = (Math.random() - 0.5) * 0.5;
+          const dist = Math.random() * 30;
+          particles.push({
+            x: x + Math.cos(angle + spread) * dist,
+            y: y + Math.sin(angle + spread) * dist,
+            vx:
+              Math.cos(angle + spread) *
+              (entering ? 1 : -1) *
+              (1 + Math.random() * 2),
+            vy:
+              Math.sin(angle + spread) *
+              (entering ? 1 : -1) *
+              (1 + Math.random() * 2),
+            life: 30 + Math.random() * 20,
+            maxLife: 50,
+            color: entering ? "#0ff" : "#f0f",
+            size: 2 + Math.random() * 3,
+          });
+        }
+      }
+
+      // ─── GAME INIT ───
+      function initGame() {
+        ship = createShip();
+        bullets = [];
+        asteroids = [];
+        particles = [];
+        floatingTexts = [];
+        mines = [];
+        powerups = [];
+        score = 0;
+        lives = 3;
+        level = 0;
+        shipInvincible = 0;
+        respawnInvincible = false;
+        levelTransition = 0;
+        screenShake = 0;
+        portalCooldown = 0;
+        mineCount = 0;
+        powerupSpawnTimer = 0;
+        timeSlowFactor = 1;
+        spreadShotTimer = 0;
+        extendedRangeTimer = 0;
+        shieldTimer = 0;
+        bombUsed = false;
+        shieldUsed = false;
+        powerupFlashTimer = 0;
+        nextLevel();
+      }
+
+      function nextLevel() {
+        level++;
+        levelTransition = 120;
+        const count = 3 + Math.floor(level * 1.5); // Increased scaling per level
+        spawnAsteroids(count);
+        createFloatingText(
+          canvas.width / 2,
+          canvas.height / 2,
+          `LEVEL ${level}`,
+          "#0ff",
+        );
+      }
+
+      function spawnAsteroids(count) {
+        for (let i = 0; i < count; i++) {
+          let x, y;
+          do {
+            x = Math.random() * canvas.width;
+            y = Math.random() * canvas.height;
+          } while (dist(x, y, ship.x, ship.y) < 180);
+          asteroids.push(createAsteroid(x, y, "large"));
+        }
+      }
+
+      function dist(x1, y1, x2, y2) {
+        return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+      }
+
+      function screenWrap(obj) {
+        if (obj.x < -obj.radius) obj.x = canvas.width + obj.radius;
+        if (obj.x > canvas.width + obj.radius) obj.x = -obj.radius;
+        if (obj.y < -obj.radius) obj.y = canvas.height + obj.radius;
+        if (obj.y > canvas.height + obj.radius) obj.y = -obj.radius;
+      }
+
+      // ─── INPUT ───
+      document.addEventListener("keydown", (e) => {
+        keys[e.code] = true;
+        if (e.code === "Space") {
+          e.preventDefault();
+          if (gameState === "start") {
+            document.getElementById("start-screen").style.display = "none";
+            gameState = "playing";
+            initGame();
+          } else if (gameState === "gameover") {
+            document.getElementById("game-over-screen").style.display = "none";
+            gameState = "playing";
+            initGame();
+          }
+        }
+        if (e.code === "KeyP" && gameState === "playing") gameState = "paused";
+        else if (e.code === "KeyP" && gameState === "paused")
+          gameState = "playing";
+        if (e.code === "KeyR") {
+          gameState = "playing";
+          document.getElementById("game-over-screen").style.display = "none";
+          initGame();
+        }
+      });
+      document.addEventListener("keyup", (e) => {
+        keys[e.code] = false;
+      });
+
+      // ─── POWER-UP SPAWNING ───
+      function spawnPowerup() {
+        const types = [
+          "spread",
+          "shield",
+          "bomb",
+          "extended",
+          "time_slow",
+          "mine",
+        ];
+        const type = types[Math.floor(Math.random() * types.length)];
+        let x, y;
+        do {
+          x = 80 + Math.random() * (canvas.width - 160);
+          y = 80 + Math.random() * (canvas.height - 160);
+        } while (dist(x, y, ship.x, ship.y) < 150);
+        powerups.push(createPowerup(x, y, type));
+      }
+
+      // ─── UPDATE ───
+      function updateShip() {
+        if (!ship.alive) {
+          ship.explodeTimer--;
+          if (ship.explodeTimer <= 0) {
+            lives--;
+            if (lives <= 0) {
+              gameOver();
+            } else {
+              ship = createShip();
+              shipInvincible = INVINCIBLE_TIME;
+              respawnInvincible = true; // Enable blink on respawn
+              shieldTimer = 0;
+              spreadShotTimer = 0;
+              extendedRangeTimer = 0;
+              timeSlowFactor = 1;
+              bombUsed = false;
+              shieldUsed = false;
+              mineCount = 0;
+              createFloatingText(
+                canvas.width / 2,
+                canvas.height / 2,
+                "READY",
+                "#0f0",
+              );
+            }
+          }
+          return;
+        }
+
+        if (keys["ArrowLeft"] || keys["KeyA"]) ship.angle -= SHIP_TURN_SPEED;
+        if (keys["ArrowRight"] || keys["KeyD"]) ship.angle += SHIP_TURN_SPEED;
+
+        ship.thrusting = keys["ArrowUp"] || keys["KeyW"];
+        if (ship.thrusting) {
+          ship.vx += Math.cos(ship.angle) * SHIP_THRUST;
+          ship.vy += Math.sin(ship.angle) * SHIP_THRUST;
+          ship.thrustFlicker++;
+          const backAngle = ship.angle + Math.PI;
+          particles.push({
+            x: ship.x + Math.cos(backAngle) * SHIP_SIZE * 0.8,
+            y: ship.y + Math.sin(backAngle) * SHIP_SIZE * 0.8,
+            vx: Math.cos(backAngle) * 2 + (Math.random() - 0.5),
+            vy: Math.sin(backAngle) * 2 + (Math.random() - 0.5),
+            life: 15 + Math.random() * 10,
+            maxLife: 25,
+            color: Math.random() < 0.5 ? "#f80" : "#ff0",
+            size: 2 + Math.random() * 2,
+          });
+        }
+
+        ship.vx *= 0.995;
+        ship.vy *= 0.995;
+        const speed = Math.sqrt(ship.vx ** 2 + ship.vy ** 2);
+        if (speed > 7) {
+          ship.vx = (ship.vx / speed) * 7;
+          ship.vy = (ship.vy / speed) * 7;
+        }
+        ship.x += ship.vx;
+        ship.y += ship.vy;
+        screenWrap(ship);
+
+        // Shooting (halved fire rate: 40 frames)
+        if (shootCooldown > 0) shootCooldown--;
+        let fireRate = 40;
+
+        if (keys["Space"] && shootCooldown <= 0 && ship.alive) {
+          shootCooldown = fireRate;
+          const noseX = ship.x + Math.cos(ship.angle) * SHIP_SIZE;
+          const noseY = ship.y + Math.sin(ship.angle) * SHIP_SIZE;
+          bullets.push({
+            x: noseX,
+            y: noseY,
+            vx: Math.cos(ship.angle) * BULLET_SPEED + ship.vx * 0.3,
+            vy: Math.sin(ship.angle) * BULLET_SPEED + ship.vy * 0.3,
+            life: BULLET_LIFE,
+            radius: 2,
+            distTraveled: 0,
+          });
+          if (spreadShotTimer > 0) {
+            for (let a = -1; a <= 1; a += 2) {
+              const a2 = ship.angle + a * 0.25;
+              bullets.push({
+                x: noseX,
+                y: noseY,
+                vx: Math.cos(a2) * BULLET_SPEED + ship.vx * 0.3,
+                vy: Math.sin(a2) * BULLET_SPEED + ship.vy * 0.3,
+                life: BULLET_LIFE,
+                radius: 2,
+                distTraveled: 0,
+              });
+            }
+          }
+        }
+
+        // Portal (Z key)
+        if (keys["KeyZ"] && portalCooldown <= 0 && ship.alive) {
+          portalCooldown = PORTAL_COOLDOWN;
+          const jumpDist = Math.min(canvas.width, canvas.height) * 0.4;
+          let nx = ship.x + Math.cos(ship.angle) * jumpDist;
+          let ny = ship.y + Math.sin(ship.angle) * jumpDist;
+          if (nx < 0) nx += canvas.width;
+          if (nx > canvas.width) nx -= canvas.width;
+          if (ny < 0) ny += canvas.height;
+          if (ny > canvas.height) ny -= canvas.height;
+
+          createPortalEffect(ship.x, ship.y, ship.angle, false);
+          ship.x = nx;
+          ship.y = ny;
+          createPortalEffect(ship.x, ship.y, ship.angle + Math.PI, true);
+          createFloatingText(ship.x, ship.y - 30, "PORTAL!", "#f0f");
+          shipInvincible = 30;
+        }
+        if (portalCooldown > 0) portalCooldown--;
+
+        // Deploy mine (X key)
+        if (keys["KeyX"] && mineCount < MINE_MAX) {
+          keys["KeyX"] = false;
+          mineCount++;
+          mines.push(createMine(ship.x, ship.y));
+          createFloatingText(ship.x, ship.y - 30, "MINE DEPLOYED", "#f80");
+        }
+
+        // Spread shot (C key)
+        if (keys["KeyC"]) {
+          keys["KeyC"] = false;
+          spreadShotTimer = POWER_SPREAD;
+          createFloatingText(ship.x, ship.y - 30, "SPREAD SHOT!", "#0f0");
+        }
+
+        // Shield (V key)
+        if (keys["KeyV"] && !shieldUsed && shieldTimer <= 0) {
+          keys["KeyV"] = false;
+          shieldUsed = true;
+          shieldTimer = POWER_SHIELD;
+          createFloatingText(ship.x, ship.y - 30, "SHIELD!", "#0ff");
+        }
+
+        // Bomb (B key) - Balanced: hits all asteroids like 1 shot each
+        if (keys["KeyB"] && !bombUsed && asteroids.length > 0) {
+          keys["KeyB"] = false;
+          bombUsed = true;
+          for (let j = asteroids.length - 1; j >= 0; j--) {
+            const a = asteroids[j];
+            const newAsteroids = [];
+            if (a.size === "large") {
+              newAsteroids.push(createAsteroid(a.x, a.y, "medium"));
+              newAsteroids.push(createAsteroid(a.x, a.y, "medium"));
+              score += 10;
+            } else if (a.size === "medium") {
+              newAsteroids.push(createAsteroid(a.x, a.y, "small"));
+              newAsteroids.push(createAsteroid(a.x, a.y, "small"));
+              score += 25;
+            } else {
+              score += 50;
+            }
+            asteroids.splice(j, 1);
+            asteroids.push(...newAsteroids);
+          }
+          screenShake = 10;
+          createFloatingText(
+            canvas.width / 2,
+            canvas.height / 2,
+            "BOMB HIT!",
+            "#f00",
+          );
+          for (const a of asteroids) {
+            createExplosion(a.x, a.y, 5, "#f80", 2);
+          }
+        }
+
+        // Extended Range (N key)
+        if (keys["KeyN"]) {
+          keys["KeyN"] = false;
+          extendedRangeTimer = POWER_EXTENDED;
+          createFloatingText(ship.x, ship.y - 30, "EXTENDED RANGE!", "#ff0");
+        }
+
+        // Time slow (M key)
+        if (keys["KeyM"]) {
+          keys["KeyM"] = false;
+          timeSlowFactor = 0.3;
+          setTimeout(() => {
+            timeSlowFactor = 1;
+          }, 16000);
+          createFloatingText(ship.x, ship.y - 30, "TIME SLOW!", "#f0f");
+        }
+
+        // Decrement timers
+        if (shipInvincible > 0) shipInvincible--;
+        if (spreadShotTimer > 0) spreadShotTimer--;
+        if (extendedRangeTimer > 0) extendedRangeTimer--;
+        if (shieldTimer > 0) shieldTimer--; // Shield no longer sets shipInvincible
+        if (powerupFlashTimer > 0) powerupFlashTimer--;
+      }
+
+      function updateBullets() {
+        for (let i = bullets.length - 1; i >= 0; i--) {
+          const b = bullets[i];
+          b.x += b.vx;
+          b.y += b.vy;
+          b.life--;
+          b.distTraveled += Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+
+          const maxDist = extendedRangeTimer > 0 ? 900 : 300;
+          if (
+            b.life <= 0 ||
+            b.distTraveled > maxDist ||
+            b.x < -10 ||
+            b.x > canvas.width + 10 ||
+            b.y < -10 ||
+            b.y > canvas.height + 10
+          ) {
+            bullets.splice(i, 1);
+            continue;
+          }
+
+          for (let j = asteroids.length - 1; j >= 0; j--) {
+            const a = asteroids[j];
+            if (dist(b.x, b.y, a.x, a.y) < a.radius + 5) {
+              bullets.splice(i, 1);
+              const newAsteroids = [];
+              if (a.size === "large") {
+                newAsteroids.push(createAsteroid(a.x, a.y, "medium"));
+                newAsteroids.push(createAsteroid(a.x, a.y, "medium"));
+              } else if (a.size === "medium") {
+                newAsteroids.push(createAsteroid(a.x, a.y, "small"));
+                newAsteroids.push(createAsteroid(a.x, a.y, "small"));
+              }
+              score += a.points;
+              createFloatingText(a.x, a.y, `+${a.points}`, "#ff0");
+              createExplosion(a.x, a.y, a.size === "large" ? 15 : 8, "#fff", 3);
+              screenShake = 5;
+              asteroids.splice(j, 1);
+              asteroids.push(...newAsteroids);
+              break;
+            }
+          }
+        }
+      }
+
+      function updateAsteroids() {
+        const tf = timeSlowFactor;
+        for (const a of asteroids) {
+          a.x += a.vx * tf;
+          a.y += a.vy * tf;
+          a.rotation += a.rotationSpeed * tf;
+          screenWrap(a);
+        }
+      }
+
+      function updateMines() {
+        for (let i = mines.length - 1; i >= 0; i--) {
+          const m = mines[i];
+          m.life--;
+          m.pulsePhase += 0.05;
+
+          if (m.life <= 0) {
+            mines.splice(i, 1);
+            mineCount = Math.max(0, mineCount - 1);
+            continue;
+          }
+
+          if (m.arming && !m.exploding) {
+            m.armTimer--;
+            const playerDist = dist(m.x, m.y, ship.x, ship.y);
+            if (playerDist > MINE_ARM_DISTANCE && m.armTimer <= 0) {
+              m.arming = false;
+              m.armed = true;
+              createFloatingText(m.x, m.y - 20, "ARMED", "#f80");
+            }
+            if (playerDist <= MINE_ARM_DISTANCE && m.armTimer > 0) {
+              m.armTimer = Math.min(m.armTimer + 2, MINE_ARM_TIME);
+            }
+          }
+
+          if (m.exploding) {
+            m.explodeTimer--;
+            if (m.explodeTimer <= 0) {
+              createExplosion(m.x, m.y, 20, "#ff0", 4);
+              createExplosion(m.x, m.y, 15, "#f80", 3);
+              screenShake = 8;
+              mines.splice(i, 1);
+              mineCount = Math.max(0, mineCount - 1);
+            }
+            continue;
+          }
+
+          if (m.armed && !m.exploding) {
+            for (let j = asteroids.length - 1; j >= 0; j--) {
+              const a = asteroids[j];
+              if (dist(m.x, m.y, a.x, a.y) < a.radius + m.radius + 10) {
+                m.exploding = true;
+                m.explodeTimer = MINE_EXPLOSION_TIME;
+                const newAsteroids = [];
+                if (a.size === "large") {
+                  newAsteroids.push(createAsteroid(a.x, a.y, "medium"));
+                  newAsteroids.push(createAsteroid(a.x, a.y, "medium"));
+                } else if (a.size === "medium") {
+                  newAsteroids.push(createAsteroid(a.x, a.y, "small"));
+                  newAsteroids.push(createAsteroid(a.x, a.y, "small"));
+                }
+                score += a.points;
+                createFloatingText(a.x, a.y, `+${a.points}`, "#f80");
+                asteroids.splice(j, 1);
+                asteroids.push(...newAsteroids);
+                break;
+              }
+            }
+          }
+
+          if (m.armed && ship.alive && !isInvincible() && !m.exploding) {
+            if (dist(m.x, m.y, ship.x, ship.y) < ship.radius + m.radius + 10) {
+              m.exploding = true;
+              m.explodeTimer = MINE_EXPLOSION_TIME;
+              ship.alive = false;
+              ship.explodeTimer = 90;
+              createExplosion(ship.x, ship.y, 40, "#f00", 5);
+              createExplosion(ship.x, ship.y, 20, "#ff0", 3);
+              screenShake = 15;
+            }
+          }
+        }
+      }
+
+      function updatePowerups() {
+        for (let i = powerups.length - 1; i >= 0; i--) {
+          const p = powerups[i];
+          p.life--;
+          p.pulsePhase += 0.05;
+          p.x += p.vx * timeSlowFactor;
+          p.y += p.vy * timeSlowFactor;
+
+          if (p.x < -20) p.x = canvas.width + 20;
+          if (p.x > canvas.width + 20) p.x = -20;
+          if (p.y < -20) p.y = canvas.height + 20;
+          if (p.y > canvas.height + 20) p.y = -20;
+
+          if (p.life <= 0) {
+            powerups.splice(i, 1);
+            continue;
+          }
+
+          if (
+            ship.alive &&
+            dist(p.x, p.y, ship.x, ship.y) < ship.radius + p.radius + 10
+          ) {
+            powerups.splice(i, 1);
+            powerupFlashTimer = 30;
+            switch (p.type) {
+              case "spread":
+                spreadShotTimer = POWER_SPREAD;
+                createFloatingText(p.x, p.y, "SPREAD SHOT!", "#0f0");
+                break;
+              case "shield":
+                shieldUsed = false;
+                shieldTimer = POWER_SHIELD;
+                createFloatingText(p.x, p.y, "SHIELD!", "#0ff");
+                break;
+              case "bomb":
+                bombUsed = false;
+                createFloatingText(p.x, p.y, "BOMB READY!", "#f00");
+                break;
+              case "extended":
+                extendedRangeTimer = POWER_EXTENDED;
+                createFloatingText(p.x, p.y, "EXTENDED RANGE!", "#ff0");
+                break;
+              case "time_slow":
+                timeSlowFactor = 0.3;
+                setTimeout(() => {
+                  timeSlowFactor = 1;
+                }, 16000);
+                createFloatingText(p.x, p.y, "TIME SLOW!", "#f0f");
+                break;
+              case "mine":
+                mineCount = Math.min(MINE_MAX, mineCount + 2);
+                createFloatingText(p.x, p.y, "+2 MINES!", "#f80");
+                break;
+            }
+            createExplosion(p.x, p.y, 15, p.color, 3);
+          }
+        }
+      }
+
+      // Helper: check if ship is invincible (respawn blink OR shield)
+      function isInvincible() {
+        return shipInvincible > 0 || shieldTimer > 0;
+      }
+
+      // ─── UPDATED COLLISION LOGIC WITH SHIELD BOUNCE ───
+      function checkShipCollisions() {
+        if (!ship.alive) return;
+
+        for (let j = asteroids.length - 1; j >= 0; j--) {
+          const a = asteroids[j];
+          const collisionDist = a.radius + SHIP_SIZE * 0.6;
+          if (dist(ship.x, ship.y, a.x, a.y) < collisionDist) {
+            if (shieldTimer > 0) {
+              // Shield bounce logic: push asteroid away, ship trajectory unchanged
+              const dx = a.x - ship.x;
+              const dy = a.y - ship.y;
+              const d = Math.sqrt(dx * dx + dy * dy) || 1;
+              const nx = dx / d;
+              const ny = dy / d;
+
+              const repelForce = 2.5;
+              a.vx += nx * repelForce;
+              a.vy += ny * repelForce;
+
+              // Push out of overlap to prevent sticking
+              const overlap = collisionDist - d;
+              if (overlap > 0) {
+                a.x += nx * overlap;
+                a.y += ny * overlap;
+              }
+
+              // Visual feedback
+              createExplosion(
+                ship.x + nx * collisionDist,
+                ship.y + ny * collisionDist,
+                8,
+                "#0ff",
+                2,
+              );
+              screenShake = Math.max(screenShake, 2);
+            } else if (shipInvincible > 0) {
+              continue; // Respawn invincibility - just pass through
+            } else {
+              // Normal collision - ship dies
+              ship.alive = false;
+              ship.explodeTimer = 90;
+              createExplosion(ship.x, ship.y, 40, "#f00", 5);
+              createExplosion(ship.x, ship.y, 20, "#ff0", 3);
+              screenShake = 15;
+              return;
+            }
+          }
+        }
+      }
+
+      function updateParticles() {
+        for (let i = particles.length - 1; i >= 0; i--) {
+          const p = particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vx *= 0.98;
+          p.vy *= 0.98;
+          p.life--;
+          if (p.life <= 0) particles.splice(i, 1);
+        }
+      }
+
+      function updateFloatingTexts() {
+        for (let i = floatingTexts.length - 1; i >= 0; i--) {
+          const ft = floatingTexts[i];
+          ft.y -= 0.5;
+          ft.life--;
+          if (ft.life <= 0) floatingTexts.splice(i, 1);
+        }
+      }
+
+      function gameOver() {
+        gameState = "gameover";
+        if (score > highScore) {
+          highScore = score;
+          localStorage.setItem("asteroidsHighScore", highScore);
+        }
+        document.getElementById("final-score").textContent = `SCORE: ${score}`;
+        document.getElementById("final-level").textContent =
+          `REACHED LEVEL ${level}`;
+        document.getElementById("game-over-screen").style.display = "block";
+      }
+
+      // ─── DRAW ───
+      function drawShip() {
+        if (!ship.alive) {
+          const progress = 1 - ship.explodeTimer / 90;
+          const r = SHIP_SIZE * progress * 3;
+          ctx.beginPath();
+          ctx.arc(ship.x, ship.y, r, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(255,100,0,${1 - progress})`;
+          ctx.lineWidth = 3 - progress * 2;
+          ctx.stroke();
+          return;
+        }
+
+        // FIX: Only blink during respawn invincibility, NOT during shield
+        if (
+          respawnInvincible &&
+          shipInvincible > 0 &&
+          Math.floor(shipInvincible / 5) % 2 === 0
+        ) {
+          return; // Blink during respawn invincibility only
+        }
+
+        ctx.save();
+        ctx.translate(ship.x, ship.y);
+        ctx.rotate(ship.angle);
+
+        // Draw ship body
+        ctx.beginPath();
+        ctx.moveTo(SHIP_SIZE, 0);
+        ctx.lineTo(-SHIP_SIZE * 0.7, -SHIP_SIZE * 0.6);
+        ctx.lineTo(-SHIP_SIZE * 0.3, 0);
+        ctx.lineTo(-SHIP_SIZE * 0.7, SHIP_SIZE * 0.6);
+        ctx.closePath();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Shield bubble - always visible when shield is active
+        if (shieldTimer > 0) {
+          const shieldPulse = Math.sin(Date.now() * 0.008) * 0.15 + 0.35;
+          const shieldR = SHIP_SIZE + 10;
+
+          // Outer glow
+          ctx.beginPath();
+          ctx.arc(0, 0, shieldR + 4, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(0,255,255,${shieldPulse * 0.15})`;
+          ctx.fill();
+
+          // Main shield ring
+          ctx.beginPath();
+          ctx.arc(0, 0, shieldR, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(0,255,255,${shieldPulse + 0.15})`;
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+
+          // Inner subtle ring
+          ctx.beginPath();
+          ctx.arc(0, 0, shieldR - 3, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(0,255,255,${shieldPulse * 0.5})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          // Shield hex pattern (subtle)
+          for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2 + Date.now() * 0.001;
+            const x1 = Math.cos(a) * (shieldR - 5);
+            const y1 = Math.sin(a) * (shieldR - 5);
+            const x2 = Math.cos(a + 0.5) * (shieldR + 5);
+            const y2 = Math.sin(a + 0.5) * (shieldR + 5);
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.strokeStyle = `rgba(0,255,255,${shieldPulse * 0.3})`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+        }
+
+        // Rapid fire visual indicator
+        if (spreadShotTimer > 0) {
+          ctx.beginPath();
+          ctx.arc(0, 0, SHIP_SIZE + 6, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(0,255,0,${0.2 + Math.sin(Date.now() * 0.02) * 0.15})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+
+        if (extendedRangeTimer > 0) {
+          ctx.beginPath();
+          ctx.arc(0, 0, SHIP_SIZE + 10, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(255,255,0,${0.15 + Math.sin(Date.now() * 0.02) * 0.1})`;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        // Thrust flame
+        if (ship.thrusting) {
+          const flicker = Math.sin(ship.thrustFlicker * 0.5) * 5;
+          ctx.beginPath();
+          ctx.moveTo(-SHIP_SIZE * 0.3, -SHIP_SIZE * 0.3);
+          ctx.lineTo(-SHIP_SIZE * 0.3 - SHIP_SIZE * 0.8 - flicker, 0);
+          ctx.lineTo(-SHIP_SIZE * 0.3, SHIP_SIZE * 0.3);
+          ctx.strokeStyle = "#f80";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(-SHIP_SIZE * 0.3, -SHIP_SIZE * 0.15);
+          ctx.lineTo(-SHIP_SIZE * 0.3 - SHIP_SIZE * 0.4 - flicker * 0.5, 0);
+          ctx.lineTo(-SHIP_SIZE * 0.3, SHIP_SIZE * 0.15);
+          ctx.strokeStyle = "#ff0";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      }
+
+      function drawAsteroids() {
+        for (const a of asteroids) {
+          ctx.save();
+          ctx.translate(a.x, a.y);
+          ctx.rotate(a.rotation);
+          ctx.beginPath();
+          ctx.moveTo(a.vertices[0].x, a.vertices[0].y);
+          for (let i = 1; i < a.vertices.length; i++) {
+            ctx.lineTo(a.vertices[i].x, a.vertices[i].y);
+          }
+          ctx.closePath();
+          ctx.strokeStyle = "#aaa";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      function drawBullets() {
+        for (const b of bullets) {
+          const alpha = b.life / BULLET_LIFE;
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(200,200,255,${alpha * 0.3})`;
+          ctx.fill();
+        }
+      }
+
+      function drawMines() {
+        for (const m of mines) {
+          const pulse = Math.sin(m.pulsePhase) * 0.3 + 0.7;
+
+          if (m.exploding) {
+            const progress = 1 - m.explodeTimer / MINE_EXPLOSION_TIME;
+            const r = MINE_EXPLOSION_RADIUS * progress;
+            ctx.beginPath();
+            ctx.arc(m.x, m.y, r, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255,200,0,${1 - progress})`;
+            ctx.lineWidth = 3 - progress * 2;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(m.x, m.y, r * 0.6, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255,100,0,${(1 - progress) * 0.3})`;
+            ctx.fill();
+            continue;
+          }
+
+          if (m.arming) {
+            const blinkOn = Math.sin(m.pulsePhase / MINE_BLINK_RATE) > 0;
+            const alpha = blinkOn ? 0.8 : 0.15;
+
+            ctx.beginPath();
+            ctx.arc(m.x, m.y, m.radius + 4, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255,136,0,${alpha * 0.2})`;
+            ctx.fill();
+            ctx.strokeStyle = `rgba(255,136,0,${alpha})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            const s = m.radius * 0.5;
+            ctx.beginPath();
+            ctx.moveTo(m.x - s, m.y);
+            ctx.lineTo(m.x + s, m.y);
+            ctx.moveTo(m.x, m.y - s);
+            ctx.lineTo(m.x, m.y + s);
+            ctx.strokeStyle = `rgba(255,200,0,${alpha})`;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            const progress = 1 - m.armTimer / MINE_ARM_TIME;
+            ctx.beginPath();
+            ctx.arc(
+              m.x,
+              m.y,
+              m.radius + 8,
+              -Math.PI / 2,
+              -Math.PI / 2 + Math.PI * 2 * progress,
+            );
+            ctx.strokeStyle = `rgba(255,200,0,${alpha * 0.6})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            if (progress > 0.3) {
+              ctx.font = "9px Courier New";
+              ctx.fillStyle = `rgba(255,200,0,${alpha * 0.8})`;
+              ctx.textAlign = "center";
+              ctx.fillText("ARMIN", m.x, m.y - m.radius - 14);
+            }
+          } else if (m.armed) {
+            ctx.beginPath();
+            ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255,136,0,${pulse * 0.3})`;
+            ctx.fill();
+            ctx.strokeStyle = `rgba(255,136,0,${pulse})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            const s = m.radius * 0.5;
+            ctx.beginPath();
+            ctx.moveTo(m.x - s, m.y);
+            ctx.lineTo(m.x + s, m.y);
+            ctx.moveTo(m.x, m.y - s);
+            ctx.lineTo(m.x, m.y + s);
+            ctx.strokeStyle = `rgba(255,200,0,${pulse})`;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(m.x, m.y, m.radius + 4, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255,136,0,${pulse * 0.2})`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            ctx.font = "9px Courier New";
+            ctx.fillStyle = `rgba(255,200,0,${pulse * 0.7})`;
+            ctx.textAlign = "center";
+            ctx.fillText("ARMED", m.x, m.y - m.radius - 14);
+          }
+        }
+      }
+
+      function drawPowerups() {
+        for (const p of powerups) {
+          const pulse = Math.sin(p.pulsePhase) * 0.3 + 0.7;
+          const alpha = p.life < 180 ? Math.sin(p.life * 0.15) * 0.5 + 0.5 : 1;
+
+          ctx.save();
+          ctx.translate(p.x, p.y);
+
+          const hex = p.color;
+          const r = parseInt(hex.slice(1, 3), 16);
+          const g = parseInt(hex.slice(3, 5), 16);
+          const b = parseInt(hex.slice(5, 7), 16);
+
+          ctx.beginPath();
+          ctx.arc(0, 0, p.radius + 8, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(${r},${g},${b},${pulse * 0.1})`;
+          ctx.fill();
+
+          const rotAngle = Date.now() * 0.003;
+          ctx.beginPath();
+          ctx.arc(0, 0, p.radius + 4, rotAngle, rotAngle + Math.PI * 1.5);
+          ctx.strokeStyle = `rgba(${r},${g},${b},${pulse * alpha * 0.5})`;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(0, 0, p.radius, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(${r},${g},${b},${pulse * alpha})`;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.font = "bold 14px Courier New";
+          ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(p.label, 0, 0);
+
+          ctx.restore();
+        }
+      }
+
+      function drawParticles() {
+        for (const p of particles) {
+          const alpha = p.life / p.maxLife;
+          ctx.globalAlpha = alpha;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+          ctx.fillStyle = p.color;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      function drawFloatingTexts() {
+        for (const ft of floatingTexts) {
+          const alpha = ft.life / ft.maxLife;
+          ctx.globalAlpha = alpha;
+          ctx.font = "bold 20px Courier New";
+          ctx.fillStyle = ft.color;
+          ctx.textAlign = "center";
+          ctx.fillText(ft.text, ft.x, ft.y);
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      function drawHUD() {
+        ctx.font = "bold 24px Courier New";
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "left";
+        ctx.fillText(`SCORE: ${score}`, 20, 35);
+
+        ctx.font = "16px Courier New";
+        ctx.fillStyle = "#888";
+        ctx.fillText(`HI: ${highScore}`, 20, 58);
+
+        ctx.font = "bold 20px Courier New";
+        ctx.fillStyle = "#0ff";
+        ctx.textAlign = "center";
+        ctx.fillText(`LEVEL ${level}`, canvas.width / 2, 35);
+
+        ctx.textAlign = "right";
+        ctx.font = "bold 24px Courier New";
+        ctx.fillStyle = "#fff";
+        ctx.fillText(`LIVES:`, canvas.width - 100, 35);
+        for (let i = 0; i < lives; i++) {
+          const lx = canvas.width - 80 + i * 30;
+          const ly = 30;
+          ctx.save();
+          ctx.translate(lx, ly);
+          ctx.rotate(-Math.PI / 2);
+          ctx.beginPath();
+          ctx.moveTo(SHIP_SIZE * 0.5, 0);
+          ctx.lineTo(-SHIP_SIZE * 0.35, -SHIP_SIZE * 0.3);
+          ctx.lineTo(-SHIP_SIZE * 0.15, 0);
+          ctx.lineTo(-SHIP_SIZE * 0.35, SHIP_SIZE * 0.3);
+          ctx.closePath();
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        ctx.textAlign = "right";
+        ctx.font = "14px Courier New";
+        ctx.fillStyle = "#666";
+        ctx.fillText(
+          `ASTEROIDS: ${asteroids.length}`,
+          canvas.width - 20,
+          canvas.height - 15,
+        );
+
+        let timerY = 70;
+        ctx.textAlign = "left";
+        ctx.font = "14px Courier New";
+        if (spreadShotTimer > 0) {
+          ctx.fillStyle = "#0f0";
+          ctx.fillText(
+            `SPREAD: ${Math.ceil(spreadShotTimer / 60)}s`,
+            20,
+            timerY,
+          );
+          timerY += 18;
+        }
+        if (extendedRangeTimer > 0) {
+          ctx.fillStyle = "#ff0";
+          ctx.fillText(
+            `RANGE: ${Math.ceil(extendedRangeTimer / 60)}s`,
+            20,
+            timerY,
+          );
+          timerY += 18;
+        }
+        if (shieldTimer > 0) {
+          ctx.fillStyle = "#0ff";
+          ctx.fillText(`SHIELD: ${Math.ceil(shieldTimer / 60)}s`, 20, timerY);
+          timerY += 18;
+        }
+        if (timeSlowFactor < 1) {
+          ctx.fillStyle = "#f0f";
+          ctx.fillText(`SLOW TIME!`, 20, timerY);
+          timerY += 18;
+        }
+
+        ctx.fillStyle = "#888";
+        ctx.font = "13px Courier New";
+        timerY = 70;
+        const portalReady = portalCooldown <= 0;
+        ctx.fillStyle = portalReady ? "#0ff" : "#f00";
+        ctx.fillText(
+          `PORTAL: ${portalReady ? "READY" : `${Math.ceil(portalCooldown / 60)}s`}`,
+          20,
+          timerY,
+        );
+        timerY += 16;
+
+        ctx.fillStyle = mineCount < MINE_MAX ? "#f80" : "#888";
+        ctx.fillText(`MINES: ${mineCount}/${MINE_MAX}`, 20, timerY);
+        timerY += 16;
+
+        ctx.fillStyle = !bombUsed ? "#f00" : "#888";
+        ctx.fillText(`BOMB: ${bombUsed ? "USED" : "READY"}`, 20, timerY);
+        timerY += 16;
+
+        ctx.fillStyle = !shieldUsed ? "#0ff" : "#888";
+        ctx.fillText(`SHIELD: ${shieldUsed ? "USED" : "READY"}`, 20, timerY);
+
+        if (levelTransition > 0) {
+          levelTransition--;
+          const alpha = Math.min(1, levelTransition / 30);
+          ctx.globalAlpha = alpha;
+          ctx.font = "bold 48px Courier New";
+          ctx.fillStyle = "#0ff";
+          ctx.textAlign = "center";
+          ctx.fillText(
+            `LEVEL ${level}`,
+            canvas.width / 2,
+            canvas.height / 2 - 20,
+          );
+          ctx.font = "20px Courier New";
+          ctx.fillStyle = "#fff";
+          ctx.fillText("Get Ready!", canvas.width / 2, canvas.height / 2 + 20);
+          ctx.globalAlpha = 1;
+        }
+
+        if (powerupFlashTimer > 0) {
+          ctx.fillStyle = `rgba(255,255,255,${(powerupFlashTimer / 60) * 0.15})`;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // ─── KEY STRIP AT BOTTOM ───
+        const stripY = canvas.height - 35;
+        const stripHeight = 28;
+
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(0, stripY - 2, canvas.width, stripHeight + 4);
+        ctx.strokeStyle = "rgba(100,100,100,0.3)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, stripY - 2);
+        ctx.lineTo(canvas.width, stripY - 2);
+        ctx.stroke();
+
+        ctx.font = "13px Courier New";
+        ctx.textAlign = "center";
+        const stripText =
+          "←→ROTATE  ↑THRUST  SPACE:FIRE  Z:PORTAL(30s)  X:MINE(3)  C:SPREAD  V:SHIELD  B:BOMB  N:RANGE  M:TIMESLOW  P:PAUSE  R:RESTART";
+        ctx.fillStyle = "rgba(220,220,220,0.95)";
+        const textWidth = ctx.measureText(stripText).width;
+        const startX = (canvas.width - textWidth) / 2;
+        ctx.fillText(stripText, startX, stripY + 16);
+      }
+
+      function drawStars() {
+        if (!drawStars.cache) {
+          drawStars.cache = [];
+          for (let i = 0; i < 200; i++) {
+            drawStars.cache.push({
+              x: Math.random() * canvas.width,
+              y: Math.random() * canvas.height,
+              size: Math.random() * 1.5,
+              brightness: 0.2 + Math.random() * 0.5,
+            });
+          }
+        }
+        for (const s of drawStars.cache) {
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,255,255,${s.brightness})`;
+          ctx.fill();
+        }
+      }
+
+      // ─── MAIN LOOP ───
+      function update() {
+        if (gameState !== "playing") return;
+
+        updateShip();
+        updateBullets();
+        updateAsteroids();
+        updateMines();
+        updatePowerups();
+        checkShipCollisions();
+        updateParticles();
+        updateFloatingTexts();
+
+        powerupSpawnTimer++;
+        if (powerupSpawnTimer >= POWERUP_SPAWN_INTERVAL) {
+          powerupSpawnTimer = 0;
+          spawnPowerup();
+        }
+
+        if (asteroids.length === 0 && levelTransition <= 0) {
+          nextLevel();
+        }
+
+        if (screenShake > 0) screenShake *= 0.8;
+        if (screenShake < 0.5) screenShake = 0;
+      }
+
+      function draw() {
+        ctx.save();
+        if (screenShake > 0) {
+          ctx.translate(
+            (Math.random() - 0.5) * screenShake * 2,
+            (Math.random() - 0.5) * screenShake * 2,
+          );
+        }
+
+        ctx.fillStyle = "#000";
+        ctx.fillRect(-10, -10, canvas.width + 20, canvas.height + 20);
+        drawStars();
+
+        if (gameState === "playing" || gameState === "paused") {
+          drawAsteroids();
+          drawBullets();
+          drawMines();
+          drawPowerups();
+          drawShip();
+          drawParticles();
+          drawFloatingTexts();
+          drawHUD();
+
+          if (gameState === "paused") {
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.font = "bold 48px Courier New";
+            ctx.fillStyle = "#fff";
+            ctx.textAlign = "center";
+            ctx.fillText("PAUSED", canvas.width / 2, canvas.height / 2);
+            ctx.font = "20px Courier New";
+            ctx.fillText(
+              "Press P to resume",
+              canvas.width / 2,
+              canvas.height / 2 + 40,
+            );
+          }
+        }
+        ctx.restore();
+      }
+
+      function gameLoop() {
+        update();
+        draw();
+        requestAnimationFrame(gameLoop);
+      }
+
+      gameLoop();
+    </script>
+  </body>
+</html>
