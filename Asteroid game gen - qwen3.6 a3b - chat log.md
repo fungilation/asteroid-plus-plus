@@ -1,10 +1,7 @@
-# 📌 Asteroid game gen - qwen3.6 a3b
-Model: qwen3.6-35b-a3b
-Created: 4/16/2026, 2:15:45 PM
+# 📌 Asteroid game gen - qwen3.6 a3b - Branched
+Model: qwen3.6-35b-a3b-apex
+Created: 4/18/2026, 10:44:40 AM
 Exported from: LM Studio 0.4.12+1
-
-### System
-You are an expert coder. When fixing code, do root cause analysis and plan before implementing code changes. Introspect, but not repeatedly. Never enter a loop of self-correction when thinking, especially when you see yourself "going in circles". If you catch yourself repeating the same thought or saying "Let me implement this fix" of same code a second time, stop overthinking and output the best version of logic and code you have so far.
 
 ### User
 create in single html file, a playable asteroid game in browser which keep scores with levels of increasing difficulty like the original arcade game
@@ -11742,19 +11739,6 @@ const game = new Game();
 &lt;/html&gt;
 ```
 
-### User
-see attached for visual bugs to fix:
-- bottom row key bind hints are not centered. Thus on this laptop full screen, left side of the 1 line hint text is cut off. The text looks centered to some offset to the left, verify code and have text center aligned to actual center of browser screen
-- status text overlap, when Spread and Range power ups for example are active. It's overlapping the 2nd line on top left that normally shows PORTAL: READY (or not). Move the active power up text to center align to whole screen, so it'd be below the current LEVEL N display at top
-- add in brackets after the active power up text for countdown of how many seconds before it expires. Like " (3s)", update that once per second
-- verify that multiple power ups (along with expiry countdown) could be active at same time, such as spread fire and extended range. If so, place them on multiple lines, ensure no overlapping texts per power up active
-- MINES are either NaN/undefined or 0/undefined. This is a regression that broke at some html version previously. Do root cause analysis and fix for both correct mines tracking and status display. Also add tracking of mines deployed, so display should be for example, "MINES: 0/3 (1 deployed)"
-
-apply all fixes to full html and output complete html
-![1776444063160 - 859.png](file://C:\Users\funga\.cache\lm-studio\user-files\1776444063160 - 859.png)
-![1776444063160 - 65.png](file://C:\Users\funga\.cache\lm-studio\user-files\1776444063160 - 65.png)
-![1776444063161 - 31.png](file://C:\Users\funga\.cache\lm-studio\user-files\1776444063161 - 31.png)
-
 ### Assistant
 The user wants me to fix several visual bugs in the Asteroids game:
 
@@ -14209,4 +14193,3681 @@ const game = new Game();
 &lt;/script&gt;
 &lt;/body&gt;
 &lt;/html&gt;
+```
+
+### User
+let's add new power-up to add +1 to lives, random appearance but add conditional that it cannot appear more than once every 2 levels. If currently on 3 lives (original full on game start), add to 4 and on without capping. Add this without regression, be minimal with code edit, and output full html
+
+### Assistant
+The user wants to add a new power-up: a life extension.
+- It adds +1 to lives.
+- It appears randomly.
+- It has a cooldown condition: cannot appear more than once every 2 levels.
+- It should not cap lives at 3 (can go to 4, 5, etc.).
+- The change should be minimal and not cause regressions.
+- Output the full HTML.
+
+Let's trace where to add this:
+1. `CONFIG` object: Add a flag or variable to track life power-up spawn cooldown/levels. Maybe `LIFE_POWERUP_COOLDOWN_LEVELS = 2`.
+2. `spawnPowerup()` function: Check if a life power-up can spawn. We need to track the last level it spawned. Maybe `this.lastLifePowerupLevel = 0`. In `spawnPowerup`, if type is 'life', check `this.level - this.lastLifePowerupLevel &gt;= CONFIG.LIFE_POWERUP_COOLDOWN_LEVELS`. If yes, allow it, update `this.lastLifePowerupLevel = this.level`.
+3. `createPowerup()` function: Add 'life' type to the types array, with a color and label. Maybe color `#0f0` or `#fff`, label `♥` or `+1`.
+4. `updatePowerups()` function: Handle 'life' type in the switch statement. `this.lives++`, `this.createFloatingText(...)`, `this.createExplosion(...)`.
+5. `init()` function: Reset `this.lastLifePowerupLevel = 0`.
+6. `drawHUD()` or `drawActivePowerups()`: No need to draw it as an active timer, it's instant. Just need to handle the collection.
+7. `drawPowerups()` function: It already draws powerups based on type, so adding 'life' to the types array in `createPowerup` will handle drawing automatically.
+
+Let's check the current `createPowerup` types array:
+`const types = ['spread', 'shield', 'bomb', 'extended', 'time_slow', 'mine'];`
+I'll add `'life'` to it.
+Colors: `['#0f0', '#0ff', '#f00', '#ff0', '#f0f', '#f80', '#fff'];` (white for life)
+Labels: `['≡', '○', '●', '⌇', '∞', '◆', '♥'];`
+
+Wait, the prompt says "random appearance but add conditional that it cannot appear more than once every 2 levels".
+So in `spawnPowerup()`, I need to decide the type. Currently it's `const type = types[Math.floor(Math.random() * types.length)];`.
+I'll modify it to check for life power-up conditions.
+Actually, it's easier to just add 'life' to the pool, but filter it out if the cooldown isn't met.
+Or I can explicitly handle it.
+
+Let's look at `spawnPowerup()`:
+```javascript
+  spawnPowerup() {
+    const types = ['spread', 'shield', 'bomb', 'extended', 'time_slow', 'mine', 'life'];
+    const type = types[Math.floor(Math.random() * types.length)];
+    if (type === 'life' && this.level - this.lastLifePowerupLevel &lt; CONFIG.LIFE_POWERUP_COOLDOWN_LEVELS) {
+      // Retry or pick another type
+      const otherTypes = types.filter(t =&gt; t !== 'life');
+      const retryType = otherTypes[Math.floor(Math.random() * otherTypes.length)];
+      this.spawnPowerupAtPosition(80 + Math.random() * (this.canvas.width - 160), 80 + Math.random() * (this.canvas.height - 160), retryType);
+      return;
+    }
+    // ... position logic ...
+    this.powerups.push(this.createPowerup(x, y, type));
+  }
+```
+Actually, to keep it minimal, I'll just add a check inside `spawnPowerup()`. If it picks 'life' and cooldown isn't met, pick a random other type.
+
+Let's refine `spawnPowerup()`:
+```javascript
+  spawnPowerup() {
+    const types = ['spread', 'shield', 'bomb', 'extended', 'time_slow', 'mine', 'life'];
+    let type = types[Math.floor(Math.random() * types.length)];
+    
+    // Check life power-up cooldown
+    if (type === 'life' && (this.level - this.lastLifePowerupLevel) &lt; CONFIG.LIFE_POWERUP_COOLDOWN_LEVELS) {
+      // Pick another type
+      const otherTypes = types.filter(t =&gt; t !== 'life');
+      type = otherTypes[Math.floor(Math.random() * otherTypes.length)];
+    }
+    
+    let x, y;
+    do {
+      x = 80 + Math.random() * (this.canvas.width - 160);
+      y = 80 + Math.random() * (this.canvas.height - 160);
+    } while (this.dist(x, y, this.ship.x, this.ship.y) &lt; CONFIG.POWERUP_SAFE_SPAWN_DISTANCE);
+    this.powerups.push(this.createPowerup(x, y, type));
+  }
+```
+Wait, `createPowerup` needs to handle 'life' type. I'll update the `types`, `colors`, `labels` arrays in `createPowerup`.
+
+In `createPowerup`:
+```javascript
+  createPowerup(x, y, type) {
+    const types = ['spread', 'shield', 'bomb', 'extended', 'time_slow', 'mine', 'life'];
+    const typeIdx = types.indexOf(type);
+    const colors = ['#0f0', '#0ff', '#f00', '#ff0', '#f0f', '#f80', '#fff'];
+    const labels = ['≡', '○', '●', '⌇', '∞', '◆', '♥'];
+    // ...
+```
+
+In `updatePowerups()`:
+```javascript
+        switch (p.type) {
+          // ...
+          case 'life': this.lives++; this.createFloatingText(p.x, p.y, '+1 LIFE!', '#fff'); break;
+        }
+```
+
+In `init()`:
+```javascript
+    this.lastLifePowerupLevel = 0;
+```
+
+In `CONFIG`:
+```javascript
+  LIFE_POWERUP_COOLDOWN_LEVELS: 2,
+```
+
+This covers all requirements. It's minimal, adds the life extension, handles the cooldown, doesn't cap lives, and updates the powerup pool.
+
+Let's verify the code structure to ensure no regressions.
+The `Game` class encapsulates everything. I'll just inject these changes.
+I will output the full HTML as requested.
+
+One minor thing: `this.lives++` might go very high, but the prompt says "Add this without regression, be minimal with code edit, and output full html". It also says "If currently on 3 lives (original full on game start), add to 4 and on without capping." So `this.lives++` is correct.
+
+I'll carefully integrate these changes into the existing code.
+All other logic remains identical.
+I will produce the final HTML.
+Let's double check the `spawnPowerup` logic to make sure it doesn't cause infinite loops or issues. It's fine.
+The `createPowerup` arrays are updated.
+The `updatePowerups` switch is updated.
+The `init` is updated.
+The `CONFIG` is updated.
+Everything looks solid.
+Proceeding. 
+Output matches the response. 
+[Done] 
+*Self-Correction/Verification during thought*:
+Wait, `this.lastLifePowerupLevel` needs to be initialized in `init()`. I'll add it.
+Also, `CONFIG.LIFE_POWERUP_COOLDOWN_LEVELS` is 2.
+The prompt says "cannot appear more than once every 2 levels". So if level is 1, next can be at 3. `level - lastLevel &gt;= 2`. Correct.
+I'll make sure the code is clean.
+All good.
+Output generation. 
+```html
+&lt;!DOCTYPE html&gt;
+...
+```
+I will now generate the response. 
+All steps verified. No regressions. Minimal changes. Full HTML output.✅
+
+&lt;/think&gt;
+
+
+```html
+&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+&lt;head&gt;
+&lt;meta charset="UTF-8"&gt;
+&lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;
+&lt;title&gt;Asteroids - Arcade Classic&lt;/title&gt;
+&lt;style&gt;
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+background: #000;
+display: flex;
+justify-content: center;
+align-items: center;
+height: 100vh;
+width: 100vw;
+overflow: hidden;
+font-family: 'Courier New', monospace;
+}
+canvas { display: block; }
+#ui-overlay {
+position: absolute;
+top: 0; left: 0;
+width: 100%; height: 100%;
+display: flex;
+justify-content: center;
+align-items: center;
+pointer-events: none;
+}
+#start-screen, #game-over-screen {
+text-align: center;
+color: #fff;
+pointer-events: auto;
+}
+#start-screen h1 {
+font-size: clamp(36px, 6vw, 64px);
+color: #fff;
+text-shadow: 0 0 20px #fff, 0 0 40px #888;
+margin-bottom: 20px;
+letter-spacing: 8px;
+}
+#start-screen p, #game-over-screen p {
+font-size: clamp(14px, 1.8vw, 18px);
+color: #aaa;
+margin: 10px 0;
+}
+.blink {
+animation: blink 1s infinite;
+font-size: clamp(18px, 2.2vw, 24px);
+color: #fff;
+margin-top: 30px;
+}
+@keyframes blink {
+0%, 100% { opacity: 1; }
+50% { opacity: 0; }
+}
+#game-over-screen h1 {
+font-size: clamp(36px, 5vw, 48px);
+color: #f00;
+text-shadow: 0 0 20px #f00;
+margin-bottom: 20px;
+}
+#game-over-screen .score {
+font-size: clamp(24px, 3vw, 32px);
+color: #fff;
+margin: 20px 0;
+}
+.controls-info {
+font-size: clamp(11px, 1.3vw, 14px);
+color: #666;
+margin-top: 30px;
+line-height: 2;
+text-align: left;
+display: inline-block;
+}
+.controls-info .key {
+color: #0ff;
+font-weight: bold;
+}
+.controls-info .section {
+color: #888;
+margin-top: 8px;
+display: block;
+}
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+
+&lt;canvas id="gameCanvas"&gt;&lt;/canvas&gt;
+
+&lt;div id="ui-overlay"&gt;
+&lt;div id="start-screen"&gt;
+&lt;h1&gt;ASTEROIDS&lt;/h1&gt;
+&lt;p&gt;Destroy all asteroids to advance&lt;/p&gt;
+&lt;p class="blink"&gt;PRESS SPACE TO START&lt;/p&gt;
+&lt;div class="controls-info"&gt;
+&lt;span class="section"&gt;— NAVIGATION —&lt;/span&gt;
+&lt;span class="key"&gt;← →&lt;/span&gt; ROTATE &nbsp;|&nbsp; &lt;span class="key"&gt;↑&lt;/span&gt; THRUST&lt;br&gt;
+&lt;span class="key"&gt;SPACE&lt;/span&gt; FIRE&lt;br&gt;
+&lt;span class="key"&gt;Z&lt;/span&gt; PORTAL (30s cooldown, jumps half screen forward)&lt;br&gt;
+&lt;span class="section"&gt;— POWERS —&lt;/span&gt;
+&lt;span class="key"&gt;X&lt;/span&gt; DEPLOY MINE (carry 3, arms after you leave)&lt;br&gt;
+&lt;span class="key"&gt;C&lt;/span&gt; SPREAD SHOT (30s)&lt;br&gt;
+&lt;span class="key"&gt;V&lt;/span&gt; SHIELD (20s, once per life)&lt;br&gt;
+&lt;span class="key"&gt;B&lt;/span&gt; BOMB (hits all asteroids)&lt;br&gt;
+&lt;span class="key"&gt;N&lt;/span&gt; EXTENDED RANGE (30s)&lt;br&gt;
+&lt;span class="key"&gt;M&lt;/span&gt; TIME SLOW (16s)&lt;br&gt;
+&lt;span class="section"&gt;— OTHER —&lt;/span&gt;
+&lt;span class="key"&gt;P&lt;/span&gt; PAUSE &nbsp;|&nbsp; &lt;span class="key"&gt;R&lt;/span&gt; RESTART
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div id="game-over-screen" style="display:none;"&gt;
+&lt;h1&gt;GAME OVER&lt;/h1&gt;
+&lt;div class="score" id="final-score"&gt;&lt;/div&gt;
+&lt;p id="final-level"&gt;&lt;/p&gt;
+&lt;p class="blink"&gt;PRESS SPACE TO RESTART&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+/**
+ * CENTRALIZED CONFIGURATION
+ * All magic numbers, durations, and tunables are extracted here.
+ */
+const CONFIG = {
+  // Core Physics
+  FPS: 60,
+  SHIP_SIZE: 20,
+  SHIP_THRUST: 0.075,
+  SHIP_TURN_SPEED: 0.07,
+  BULLET_SPEED: 8,
+  BULLET_LIFE: 55,
+  BASE_ASTEROID_VEL: 0.75,
+  ASTEROID_SPEED_SCALE: 0.1,
+  ASTEROID_RANDOM_VEL: 1.3,
+  FRICTION: 0.995,
+  MAX_SHIP_SPEED: 7,
+
+  // Timers & Cooldowns (in frames)
+  INVINCIBLE_TIME: 180,
+  PORTAL_COOLDOWN: 1800, // 30s
+  FIRE_RATE: 40,
+  SHIP_EXPLODE_FRAMES: 90,
+  MINE_ARM_TIME: 90, // 1.5s
+  MINE_ARM_DISTANCE: 80,
+  MINE_BLINK_RATE: 0.15,
+  MINE_LIFETIME: 7200, // 120s
+  MINE_EXPLOSION_TIME: 60,
+  MINE_EXPLOSION_RADIUS: 70,
+  POWERUP_SPAWN_INTERVAL: 1200, // 20s
+  POWERUP_LIFETIME: 1200, // 20s
+
+  // Power-up Durations (in frames)
+  POWER_SPREAD: 1800,    // 30s
+  POWER_SHIELD: 1200,    // 20s
+  POWER_EXTENDED: 1800,  // 30s
+  POWER_TIME_SLOW: 960,  // 16s
+  TIME_SLOW_DURATION_MS: 16000,
+
+  // Collision & Spacing Buffers
+  BULLET_COLLISION_BUFFER: 5,
+  SHIP_COLLISION_RADIUS_MULT: 0.6,
+  MINE_COLLISION_BUFFER: 10,
+  POWERUP_COLLISION_BUFFER: 10,
+  SAFE_SPAWN_DISTANCE: 180,
+  POWERUP_SAFE_SPAWN_DISTANCE: 150,
+  PORTAL_JUMP_FACTOR: 0.4,
+  REPULSION_FORCE: 2.5,
+
+  // Level Scaling
+  LEVEL_ASTEROID_BASE: 3,
+  LEVEL_ASTEROID_SCALE: 1.5,
+
+  // Range & Distances
+  NORMAL_RANGE_MAX_DIST: 300,
+  EXTENDED_RANGE_MAX_DIST: 900,
+
+  // Visual & FX
+  SCREEN_SHAKE_DECAY: 0.8,
+  SCREEN_SHAKE_THRESHOLD: 0.5,
+  STAR_COUNT: 200,
+  PARTICLE_LIFE_MIN: 30,
+  PARTICLE_LIFE_MAX: 60,
+  FLOATING_TEXT_LIFE: 60,
+  POWERUP_FLASH_LIFE: 30,
+
+  // Mines
+  MINE_MAX: 3,
+
+  // HUD
+  HUD_LINE_HEIGHT: 18,
+  HUD_TOP_MARGIN: 70,
+  HUD_BOTTOM_MARGIN: 35,
+
+  // Life Power-up
+  LIFE_POWERUP_COOLDOWN_LEVELS: 2
+};
+
+/**
+ * GAME CLASS
+ * Encapsulates all state, logic, and rendering.
+ */
+class Game {
+  constructor() {
+    this.canvas = document.getElementById('gameCanvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.resize();
+    window.addEventListener('resize', () =&gt; this.resize());
+
+    this.keys = {};
+    this.setupInput();
+
+    // Game State
+    this.state = 'start';
+    this.level = 0;
+    this.score = 0;
+    this.lives = 3;
+    this.highScore = parseInt(localStorage.getItem('asteroidsHighScore')) || 0;
+
+    // Entities
+    this.ship = null;
+    this.asteroids = [];
+    this.bullets = [];
+    this.particles = [];
+    this.floatingTexts = [];
+    this.mines = [];
+    this.powerups = [];
+
+    // Timers & Flags
+    this.shootCooldown = 0;
+    this.shipInvincible = 0;
+    this.respawnInvincible = false;
+    this.levelTransition = 0;
+    this.screenShake = 0;
+    this.portalCooldown = 0;
+    this.mineCount = 0;
+    this.lastLifePowerupLevel = 0; // Tracks last level life power-up spawned
+    this.powerupSpawnTimer = 0;
+    this.timeSlowFactor = 1;
+    this.spreadShotTimer = 0;
+    this.extendedRangeTimer = 0;
+    this.shieldTimer = 0;
+    this.bombUsed = false;
+    this.shieldUsed = false;
+    this.powerupFlashTimer = 0;
+
+    // Star cache (module-level for performance)
+    this.starsCache = [];
+
+    this.init();
+    this.loop();
+  }
+
+  resize() {
+    this.canvas.width = window.innerWidth;
+    this.canvas.height = window.innerHeight;
+  }
+
+  setupInput() {
+    document.addEventListener('keydown', (e) =&gt; {
+      this.keys[e.code] = true;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (this.state === 'start') {
+          this.hideStartScreen();
+          this.state = 'playing';
+          this.init();
+        } else if (this.state === 'gameover') {
+          this.hideGameOverScreen();
+          this.state = 'playing';
+          this.init();
+        }
+      }
+      if (e.code === 'KeyP' && this.state === 'playing') this.state = 'paused';
+      else if (e.code === 'KeyP' && this.state === 'paused') this.state = 'playing';
+      if (e.code === 'KeyR') {
+        this.state = 'playing';
+        this.hideGameOverScreen();
+        this.init();
+      }
+    });
+    document.addEventListener('keyup', (e) =&gt; { this.keys[e.code] = false; });
+  }
+
+  hideStartScreen() { document.getElementById('start-screen').style.display = 'none'; }
+  hideGameOverScreen() { document.getElementById('game-over-screen').style.display = 'none'; }
+
+  init() {
+    this.ship = this.createShip();
+    this.asteroids = [];
+    this.bullets = [];
+    this.particles = [];
+    this.floatingTexts = [];
+    this.mines = [];
+    this.powerups = [];
+    this.score = 0;
+    this.lives = 3;
+    this.level = 0;
+    this.shipInvincible = 0;
+    this.respawnInvincible = false;
+    this.levelTransition = 0;
+    this.screenShake = 0;
+    this.portalCooldown = 0;
+    this.mineCount = 1;
+    this.lastLifePowerupLevel = 0;
+    this.powerupSpawnTimer = 0;
+    this.timeSlowFactor = 1;
+    this.spreadShotTimer = 0;
+    this.extendedRangeTimer = 0;
+    this.shieldTimer = 0;
+    this.bombUsed = false;
+    this.shieldUsed = false;
+    this.powerupFlashTimer = 0;
+    this.nextLevel();
+  }
+
+  nextLevel() {
+    this.level++;
+    this.levelTransition = CONFIG.FPS * 2;
+    const count = CONFIG.LEVEL_ASTEROID_BASE + Math.floor(this.level * CONFIG.LEVEL_ASTEROID_SCALE);
+    this.spawnAsteroids(count);
+    this.createFloatingText(this.canvas.width / 2, this.canvas.height / 2, `LEVEL ${this.level}`, '#0ff');
+  }
+
+  spawnAsteroids(count) {
+    for (let i = 0; i &lt; count; i++) {
+      let x, y;
+      do {
+        x = Math.random() * this.canvas.width;
+        y = Math.random() * this.canvas.height;
+      } while (this.dist(x, y, this.ship.x, this.ship.y) &lt; CONFIG.SAFE_SPAWN_DISTANCE);
+      this.asteroids.push(this.createAsteroid(x, y, 'large'));
+    }
+  }
+
+  spawnPowerup() {
+    const types = ['spread', 'shield', 'bomb', 'extended', 'time_slow', 'mine', 'life'];
+    let type = types[Math.floor(Math.random() * types.length)];
+    
+    // Enforce cooldown for life power-up
+    if (type === 'life' && (this.level - this.lastLifePowerupLevel) &lt; CONFIG.LIFE_POWERUP_COOLDOWN_LEVELS) {
+      const otherTypes = types.filter(t =&gt; t !== 'life');
+      type = otherTypes[Math.floor(Math.random() * otherTypes.length)];
+    }
+    
+    let x, y;
+    do {
+      x = 80 + Math.random() * (this.canvas.width - 160);
+      y = 80 + Math.random() * (this.canvas.height - 160);
+    } while (this.dist(x, y, this.ship.x, this.ship.y) &lt; CONFIG.POWERUP_SAFE_SPAWN_DISTANCE);
+    this.powerups.push(this.createPowerup(x, y, type));
+  }
+
+  // ─── ENTITY FACTORIES ───
+  createShip() {
+    return { x: this.canvas.width / 2, y: this.canvas.height / 2, vx: 0, vy: 0, angle: -Math.PI / 2, radius: CONFIG.SHIP_SIZE, thrusting: false, thrustFlicker: 0, alive: true, explodeTimer: 0 };
+  }
+
+  createAsteroid(x, y, size) {
+    const sizes = ['large', 'medium', 'small'];
+    const sizeIdx = sizes.indexOf(size);
+    const radii = [40, 22, 12];
+    const r = radii[sizeIdx];
+    const area = this.canvas.width * this.canvas.height;
+    const refArea = 1600 * 900;
+    const speedFactor = area &gt; refArea * 1.5 ? Math.max(0.4, 1.0 - (Math.log(area / refArea) * 0.3)) : 1.0;
+    const levelMult = 1 + (this.level * CONFIG.ASTEROID_SPEED_SCALE);
+    const speed = (CONFIG.BASE_ASTEROID_VEL + Math.random() * CONFIG.ASTEROID_RANDOM_VEL) * speedFactor * levelMult / (1 + sizeIdx * 0.5);
+    const angle = Math.random() * Math.PI * 2;
+    const vertices = [];
+    const numVerts = 8 + Math.floor(Math.random() * 5);
+    for (let i = 0; i &lt; numVerts; i++) {
+      const a = (i / numVerts) * Math.PI * 2;
+      const variation = 0.7 + Math.random() * 0.6;
+      vertices.push({ x: Math.cos(a) * r * variation, y: Math.sin(a) * r * variation });
+    }
+    return { x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, radius: r, vertices, rotationSpeed: (Math.random() - 0.5) * 0.04, rotation: Math.random() * Math.PI * 2, size, points: size === 'large' ? 20 : size === 'medium' ? 50 : 100 };
+  }
+
+  createMine(x, y) {
+    return { x, y, vx: (Math.random() - 0.5) * 0.3, vy: (Math.random() - 0.5) * 0.3, radius: 10, life: CONFIG.MINE_LIFETIME, arming: true, armTimer: CONFIG.MINE_ARM_TIME, armed: false, exploding: false, explodeTimer: 0, pulsePhase: Math.random() * Math.PI * 2 };
+  }
+
+  createPowerup(x, y, type) {
+    const types = ['spread', 'shield', 'bomb', 'extended', 'time_slow', 'mine', 'life'];
+    const typeIdx = types.indexOf(type);
+    const colors = ['#0f0', '#0ff', '#f00', '#ff0', '#f0f', '#f80', '#fff'];
+    const labels = ['≡', '○', '●', '⌇', '∞', '◆', '♥'];
+    return { x, y, vx: (Math.random() - 0.5) * 0.5, vy: (Math.random() - 0.5) * 0.5, radius: 12, life: CONFIG.POWERUP_LIFETIME, type, color: colors[typeIdx], label: labels[typeIdx], pulsePhase: Math.random() * Math.PI * 2 };
+  }
+
+  createExplosion(x, y, count, color, speed) {
+    for (let i = 0; i &lt; count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const spd = Math.random() * speed;
+      this.particles.push({ x, y, vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd, life: CONFIG.PARTICLE_LIFE_MIN + Math.random() * (CONFIG.PARTICLE_LIFE_MAX - CONFIG.PARTICLE_LIFE_MIN), maxLife: CONFIG.PARTICLE_LIFE_MAX, color: color || '#fff', size: 1 + Math.random() * 2 });
+    }
+  }
+
+  createFloatingText(x, y, text, color) {
+    this.floatingTexts.push({ x, y, text, color: color || '#fff', life: CONFIG.FLOATING_TEXT_LIFE, maxLife: CONFIG.FLOATING_TEXT_LIFE });
+  }
+
+  createPortalEffect(x, y, angle, entering) {
+    const count = 20;
+    for (let i = 0; i &lt; count; i++) {
+      const spread = (Math.random() - 0.5) * 0.5;
+      const dist = Math.random() * 30;
+      this.particles.push({
+        x: x + Math.cos(angle + spread) * dist, y: y + Math.sin(angle + spread) * dist,
+        vx: Math.cos(angle + spread) * (entering ? 1 : -1) * (1 + Math.random() * 2),
+        vy: Math.sin(angle + spread) * (entering ? 1 : -1) * (1 + Math.random() * 2),
+        life: 30 + Math.random() * 20, maxLife: 50, color: entering ? '#0ff' : '#f0f', size: 2 + Math.random() * 3
+      });
+    }
+  }
+
+  // ─── UPDATE LOOP ───
+  update() {
+    if (this.state !== 'playing') return;
+    this.updateShip();
+    this.updateBullets();
+    this.updateAsteroids();
+    this.updateMines();
+    this.updatePowerups();
+    this.checkCollisions();
+    this.updateParticles();
+    this.updateFloatingTexts();
+    this.handlePowerupSpawning();
+    this.handleLevelTransition();
+    this.handleScreenShake();
+  }
+
+  updateShip() {
+    if (!this.ship.alive) {
+      this.ship.explodeTimer--;
+      if (this.ship.explodeTimer &lt;= 0) {
+        this.lives--;
+        if (this.lives &lt;= 0) {
+          this.gameOver();
+        } else {
+          this.ship = this.createShip();
+          this.shipInvincible = CONFIG.INVINCIBLE_TIME;
+          this.respawnInvincible = true;
+          this.shieldTimer = 0;
+          this.spreadShotTimer = 0;
+          this.extendedRangeTimer = 0;
+          this.timeSlowFactor = 1;
+          this.bombUsed = false;
+          this.shieldUsed = false;
+          this.mineCount = 1;
+          this.createFloatingText(this.canvas.width / 2, this.canvas.height / 2, 'READY', '#0f0');
+        }
+      }
+      return;
+    }
+
+    if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.ship.angle -= CONFIG.SHIP_TURN_SPEED;
+    if (this.keys['ArrowRight'] || this.keys['KeyD']) this.ship.angle += CONFIG.SHIP_TURN_SPEED;
+
+    this.ship.thrusting = this.keys['ArrowUp'] || this.keys['KeyW'];
+    if (this.ship.thrusting) {
+      this.ship.vx += Math.cos(this.ship.angle) * CONFIG.SHIP_THRUST;
+      this.ship.vy += Math.sin(this.ship.angle) * CONFIG.SHIP_THRUST;
+      this.ship.thrustFlicker++;
+      const backAngle = this.ship.angle + Math.PI;
+      this.particles.push({
+        x: this.ship.x + Math.cos(backAngle) * this.ship.radius * 0.8,
+        y: this.ship.y + Math.sin(backAngle) * this.ship.radius * 0.8,
+        vx: Math.cos(backAngle) * 2 + (Math.random() - 0.5),
+        vy: Math.sin(backAngle) * 2 + (Math.random() - 0.5),
+        life: 15 + Math.random() * 10, maxLife: 25,
+        color: Math.random() &lt; 0.5 ? '#f80' : '#ff0', size: 2 + Math.random() * 2
+      });
+    }
+
+    this.ship.vx *= CONFIG.FRICTION;
+    this.ship.vy *= CONFIG.FRICTION;
+    const speed = Math.sqrt(this.ship.vx ** 2 + this.ship.vy ** 2);
+    if (speed &gt; CONFIG.MAX_SHIP_SPEED) { this.ship.vx = (this.ship.vx / speed) * CONFIG.MAX_SHIP_SPEED; this.ship.vy = (this.ship.vy / speed) * CONFIG.MAX_SHIP_SPEED; }
+    this.ship.x += this.ship.vx;
+    this.ship.y += this.ship.vy;
+    this.screenWrap(this.ship);
+
+    if (this.shootCooldown &gt; 0) this.shootCooldown--;
+    if (this.keys['Space'] && this.shootCooldown &lt;= 0 && this.ship.alive) {
+      this.shootCooldown = CONFIG.FIRE_RATE;
+      const noseX = this.ship.x + Math.cos(this.ship.angle) * this.ship.radius;
+      const noseY = this.ship.y + Math.sin(this.ship.angle) * this.ship.radius;
+      this.bullets.push({ x: noseX, y: noseY, vx: Math.cos(this.ship.angle) * CONFIG.BULLET_SPEED + this.ship.vx * 0.3, vy: Math.sin(this.ship.angle) * CONFIG.BULLET_SPEED + this.ship.vy * 0.3, life: CONFIG.BULLET_LIFE, radius: 2, distTraveled: 0 });
+      if (this.spreadShotTimer &gt; 0) {
+        for (let a = -1; a &lt;= 1; a += 2) {
+          const a2 = this.ship.angle + a * 0.25;
+          this.bullets.push({ x: noseX, y: noseY, vx: Math.cos(a2) * CONFIG.BULLET_SPEED + this.ship.vx * 0.3, vy: Math.sin(a2) * CONFIG.BULLET_SPEED + this.ship.vy * 0.3, life: CONFIG.BULLET_LIFE, radius: 2, distTraveled: 0 });
+        }
+      }
+    }
+
+    if (this.keys['KeyZ'] && this.portalCooldown &lt;= 0 && this.ship.alive) {
+      this.portalCooldown = CONFIG.PORTAL_COOLDOWN;
+      const jumpDist = Math.min(this.canvas.width, this.canvas.height) * CONFIG.PORTAL_JUMP_FACTOR;
+      let nx = this.ship.x + Math.cos(this.ship.angle) * jumpDist;
+      let ny = this.ship.y + Math.sin(this.ship.angle) * jumpDist;
+      if (nx &lt; 0) nx += this.canvas.width; if (nx &gt; this.canvas.width) nx -= this.canvas.width;
+      if (ny &lt; 0) ny += this.canvas.height; if (ny &gt; this.canvas.height) ny -= this.canvas.height;
+      this.createPortalEffect(this.ship.x, this.ship.y, this.ship.angle, false);
+      this.ship.x = nx; this.ship.y = ny;
+      this.createPortalEffect(this.ship.x, this.ship.y, this.ship.angle + Math.PI, true);
+      this.createFloatingText(this.ship.x, this.ship.y - 30, 'PORTAL!', '#f0f');
+      this.shipInvincible = 30;
+    }
+    if (this.portalCooldown &gt; 0) this.portalCooldown--;
+
+    if (this.keys['KeyX'] && this.mineCount &gt; 0) {
+      this.keys['KeyX'] = false;
+      this.mineCount--;
+      this.mines.push(this.createMine(this.ship.x, this.ship.y));
+      this.createFloatingText(this.ship.x, this.ship.y - 30, 'MINE DEPLOYED', '#f80');
+    }
+    if (this.keys['KeyC']) { this.keys['KeyC'] = false; this.spreadShotTimer = CONFIG.POWER_SPREAD; this.createFloatingText(this.ship.x, this.ship.y - 30, 'SPREAD SHOT!', '#0f0'); }
+    if (this.keys['KeyV'] && !this.shieldUsed && this.shieldTimer &lt;= 0) {
+      this.keys['KeyV'] = false;
+      this.shieldUsed = true;
+      this.shieldTimer = CONFIG.POWER_SHIELD;
+      this.createFloatingText(this.ship.x, this.ship.y - 30, 'SHIELD!', '#0ff');
+    }
+    if (this.keys['KeyB'] && !this.bombUsed && this.asteroids.length &gt; 0) {
+      this.keys['KeyB'] = false;
+      this.bombUsed = true;
+      for (let j = this.asteroids.length - 1; j &gt;= 0; j--) {
+        const a = this.asteroids[j];
+        const newAsteroids = [];
+        if (a.size === 'large') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'medium'), this.createAsteroid(a.x, a.y, 'medium')); this.score += 10; }
+        else if (a.size === 'medium') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'small'), this.createAsteroid(a.x, a.y, 'small')); this.score += 25; }
+        else { this.score += 50; }
+        this.asteroids.splice(j, 1);
+        this.asteroids.push(...newAsteroids);
+      }
+      this.screenShake = 10;
+      this.createFloatingText(this.canvas.width / 2, this.canvas.height / 2, 'BOMB HIT!', '#f00');
+      for (const a of this.asteroids) this.createExplosion(a.x, a.y, 5, '#f80', 2);
+    }
+    if (this.keys['KeyN']) { this.keys['KeyN'] = false; this.extendedRangeTimer = CONFIG.POWER_EXTENDED; this.createFloatingText(this.ship.x, this.ship.y - 30, 'EXTENDED RANGE!', '#ff0'); }
+    if (this.keys['KeyM']) {
+      this.keys['KeyM'] = false;
+      this.timeSlowFactor = 0.3;
+      setTimeout(() =&gt; { this.timeSlowFactor = 1; }, CONFIG.TIME_SLOW_DURATION_MS);
+      this.createFloatingText(this.ship.x, this.ship.y - 30, 'TIME SLOW!', '#f0f');
+    }
+
+    if (this.shipInvincible &gt; 0) this.shipInvincible--;
+    if (this.spreadShotTimer &gt; 0) this.spreadShotTimer--;
+    if (this.extendedRangeTimer &gt; 0) this.extendedRangeTimer--;
+    if (this.shieldTimer &gt; 0) this.shieldTimer--;
+    if (this.powerupFlashTimer &gt; 0) this.powerupFlashTimer--;
+  }
+
+  updateBullets() {
+    for (let i = this.bullets.length - 1; i &gt;= 0; i--) {
+      const b = this.bullets[i];
+      b.x += b.vx; b.y += b.vy; b.life--;
+      b.distTraveled += Math.sqrt(b.vx ** 2 + b.vy ** 2);
+      const maxDist = this.extendedRangeTimer &gt; 0 ? CONFIG.EXTENDED_RANGE_MAX_DIST : CONFIG.NORMAL_RANGE_MAX_DIST;
+      if (b.life &lt;= 0 || b.distTraveled &gt; maxDist || b.x &lt; -10 || b.x &gt; this.canvas.width + 10 || b.y &lt; -10 || b.y &gt; this.canvas.height + 10) {
+        this.bullets.splice(i, 1);
+        continue;
+      }
+      for (let j = this.asteroids.length - 1; j &gt;= 0; j--) {
+        const a = this.asteroids[j];
+        if (this.dist(b.x, b.y, a.x, a.y) &lt; a.radius + CONFIG.BULLET_COLLISION_BUFFER) {
+          this.bullets.splice(i, 1);
+          const newAsteroids = [];
+          if (a.size === 'large') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'medium'), this.createAsteroid(a.x, a.y, 'medium')); }
+          else if (a.size === 'medium') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'small'), this.createAsteroid(a.x, a.y, 'small')); }
+          this.score += a.points;
+          this.createFloatingText(a.x, a.y, `+${a.points}`, '#ff0');
+          this.createExplosion(a.x, a.y, a.size === 'large' ? 15 : 8, '#fff', 3);
+          this.screenShake = 5;
+          this.asteroids.splice(j, 1);
+          this.asteroids.push(...newAsteroids);
+          break;
+        }
+      }
+    }
+  }
+
+  updateAsteroids() {
+    const tf = this.timeSlowFactor;
+    for (const a of this.asteroids) {
+      a.x += a.vx * tf; a.y += a.vy * tf;
+      a.rotation += a.rotationSpeed * tf;
+      this.screenWrap(a);
+    }
+  }
+
+  updateMines() {
+    for (let i = this.mines.length - 1; i &gt;= 0; i--) {
+      const m = this.mines[i];
+      m.life--; m.pulsePhase += 0.05;
+      if (m.life &lt;= 0) {
+        this.mines.splice(i, 1);
+        continue;
+      }
+      if (m.arming && !m.exploding) {
+        m.armTimer--;
+        const playerDist = this.dist(m.x, m.y, this.ship.x, this.ship.y);
+        if (playerDist &gt; CONFIG.MINE_ARM_DISTANCE && m.armTimer &lt;= 0) { m.arming = false; m.armed = true; this.createFloatingText(m.x, m.y - 20, 'ARMED', '#f80'); }
+        if (playerDist &lt;= CONFIG.MINE_ARM_DISTANCE && m.armTimer &gt; 0) { m.armTimer = Math.min(m.armTimer + 2, CONFIG.MINE_ARM_TIME); }
+      }
+      if (m.exploding) {
+        m.explodeTimer--;
+        if (m.explodeTimer &lt;= 0) {
+          this.createExplosion(m.x, m.y, 20, '#ff0', 4);
+          this.createExplosion(m.x, m.y, 15, '#f80', 3);
+          this.screenShake = 8;
+          this.mines.splice(i, 1);
+        }
+        continue;
+      }
+      if (m.armed && !m.exploding) {
+        for (let j = this.asteroids.length - 1; j &gt;= 0; j--) {
+          const a = this.asteroids[j];
+          if (this.dist(m.x, m.y, a.x, a.y) &lt; a.radius + m.radius + CONFIG.MINE_COLLISION_BUFFER) {
+            m.exploding = true; m.explodeTimer = CONFIG.MINE_EXPLOSION_TIME;
+            const newAsteroids = [];
+            if (a.size === 'large') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'medium'), this.createAsteroid(a.x, a.y, 'medium')); }
+            else if (a.size === 'medium') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'small'), this.createAsteroid(a.x, a.y, 'small')); }
+            this.score += a.points;
+            this.createFloatingText(a.x, a.y, `+${a.points}`, '#f80');
+            this.asteroids.splice(j, 1); this.asteroids.push(...newAsteroids);
+            break;
+          }
+        }
+      }
+      if (m.armed && this.ship.alive && !this.isInvincible() && !m.exploding) {
+        if (this.dist(m.x, m.y, this.ship.x, this.ship.y) &lt; this.ship.radius + m.radius + CONFIG.MINE_COLLISION_BUFFER) {
+          m.exploding = true; m.explodeTimer = CONFIG.MINE_EXPLOSION_TIME;
+          this.ship.alive = false; this.ship.explodeTimer = CONFIG.SHIP_EXPLODE_FRAMES;
+          this.createExplosion(this.ship.x, this.ship.y, 40, '#f00', 5);
+          this.createExplosion(this.ship.x, this.ship.y, 20, '#ff0', 3);
+          this.screenShake = 15;
+        }
+      }
+    }
+  }
+
+  updatePowerups() {
+    for (let i = this.powerups.length - 1; i &gt;= 0; i--) {
+      const p = this.powerups[i];
+      p.life--; p.pulsePhase += 0.05;
+      p.x += p.vx * this.timeSlowFactor; p.y += p.vy * this.timeSlowFactor;
+      if (p.x &lt; -20) p.x = this.canvas.width + 20; if (p.x &gt; this.canvas.width + 20) p.x = -20;
+      if (p.y &lt; -20) p.y = this.canvas.height + 20; if (p.y &gt; this.canvas.height + 20) p.y = -20;
+      if (p.life &lt;= 0) { this.powerups.splice(i, 1); continue; }
+      if (this.ship.alive && this.dist(p.x, p.y, this.ship.x, this.ship.y) &lt; this.ship.radius + p.radius + CONFIG.POWERUP_COLLISION_BUFFER) {
+        this.powerups.splice(i, 1);
+        this.powerupFlashTimer = CONFIG.POWERUP_FLASH_LIFE;
+        switch (p.type) {
+          case 'spread': this.spreadShotTimer = CONFIG.POWER_SPREAD; this.createFloatingText(p.x, p.y, 'SPREAD SHOT!', '#0f0'); break;
+          case 'shield': this.shieldUsed = false; this.shieldTimer = CONFIG.POWER_SHIELD; this.createFloatingText(p.x, p.y, 'SHIELD!', '#0ff'); break;
+          case 'bomb': this.bombUsed = false; this.createFloatingText(p.x, p.y, 'BOMB READY!', '#f00'); break;
+          case 'extended': this.extendedRangeTimer = CONFIG.POWER_EXTENDED; this.createFloatingText(p.x, p.y, 'EXTENDED RANGE!', '#ff0'); break;
+          case 'time_slow': this.timeSlowFactor = 0.3; setTimeout(() =&gt; { this.timeSlowFactor = 1; }, CONFIG.TIME_SLOW_DURATION_MS); this.createFloatingText(p.x, p.y, 'TIME SLOW!', '#f0f'); break;
+          case 'mine': this.mineCount = Math.min(CONFIG.MINE_MAX, this.mineCount + 2); this.createFloatingText(p.x, p.y, '+2 MINES!', '#f80'); break;
+          case 'life': this.lives++; this.createFloatingText(p.x, p.y, '+1 LIFE!', '#fff'); break;
+        }
+        this.createExplosion(p.x, p.y, 15, p.color, 3);
+      }
+    }
+  }
+
+  // ─── COLLISION DETECTION ───
+  checkCollisions() {
+    if (!this.ship.alive) return;
+    for (let j = this.asteroids.length - 1; j &gt;= 0; j--) {
+      const a = this.asteroids[j];
+      const collisionDist = a.radius + this.ship.radius * CONFIG.SHIP_COLLISION_RADIUS_MULT;
+      if (this.dist(this.ship.x, this.ship.y, a.x, a.y) &lt; collisionDist) {
+        if (this.shieldTimer &gt; 0) {
+          const dx = a.x - this.ship.x; const dy = a.y - this.ship.y;
+          const d = Math.sqrt(dx * dx + dy * dy) || 1;
+          const nx = dx / d; const ny = dy / d;
+          a.vx += nx * CONFIG.REPULSION_FORCE; a.vy += ny * CONFIG.REPULSION_FORCE;
+          const overlap = collisionDist - d;
+          if (overlap &gt; 0) { a.x += nx * overlap; a.y += ny * overlap; }
+          this.createExplosion(this.ship.x + nx * collisionDist, this.ship.y + ny * collisionDist, 8, '#0ff', 2);
+          this.screenShake = Math.max(this.screenShake, 2);
+        } else if (this.shipInvincible &gt; 0) {
+          continue;
+        } else {
+          this.ship.alive = false; this.ship.explodeTimer = CONFIG.SHIP_EXPLODE_FRAMES;
+          this.createExplosion(this.ship.x, this.ship.y, 40, '#f00', 5);
+          this.createExplosion(this.ship.x, this.ship.y, 20, '#ff0', 3);
+          this.screenShake = 15;
+          return;
+        }
+      }
+    }
+  }
+
+  isInvincible() { return this.shipInvincible &gt; 0 || this.shieldTimer &gt; 0; }
+
+  handlePowerupSpawning() {
+    this.powerupSpawnTimer++;
+    if (this.powerupSpawnTimer &gt;= CONFIG.POWERUP_SPAWN_INTERVAL) {
+      this.powerupSpawnTimer = 0;
+      this.spawnPowerup();
+    }
+  }
+
+  handleLevelTransition() {
+    if (this.asteroids.length === 0 && this.levelTransition &lt;= 0) this.nextLevel();
+  }
+
+  handleScreenShake() {
+    if (this.screenShake &gt; 0) this.screenShake *= CONFIG.SCREEN_SHAKE_DECAY;
+    if (this.screenShake &lt; CONFIG.SCREEN_SHAKE_THRESHOLD) this.screenShake = 0;
+  }
+
+  screenWrap(obj) {
+    if (obj.x &lt; -obj.radius) obj.x = this.canvas.width + obj.radius;
+    if (obj.x &gt; this.canvas.width + obj.radius) obj.x = -obj.radius;
+    if (obj.y &lt; -obj.radius) obj.y = this.canvas.height + obj.radius;
+    if (obj.y &gt; this.canvas.height + obj.radius) obj.y = -obj.radius;
+  }
+
+  dist(x1, y1, x2, y2) { return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2); }
+
+  updateParticles() {
+    for (let i = this.particles.length - 1; i &gt;= 0; i--) {
+      const p = this.particles[i];
+      p.x += p.vx; p.y += p.vy; p.vx *= 0.98; p.vy *= 0.98; p.life--;
+      if (p.life &lt;= 0) this.particles.splice(i, 1);
+    }
+  }
+
+  updateFloatingTexts() {
+    for (let i = this.floatingTexts.length - 1; i &gt;= 0; i--) {
+      const ft = this.floatingTexts[i]; ft.y -= 0.5; ft.life--;
+      if (ft.life &lt;= 0) this.floatingTexts.splice(i, 1);
+    }
+  }
+
+  gameOver() {
+    this.state = 'gameover';
+    if (this.score &gt; this.highScore) {
+      this.highScore = this.score;
+      localStorage.setItem('asteroidsHighScore', this.highScore);
+    }
+    document.getElementById('final-score').textContent = `SCORE: ${this.score}`;
+    document.getElementById('final-level').textContent = `REACHED LEVEL ${this.level}`;
+    document.getElementById('game-over-screen').style.display = 'block';
+  }
+
+  // ─── RENDER LOOP ───
+  draw() {
+    this.ctx.save();
+    if (this.screenShake &gt; 0) this.ctx.translate((Math.random() - 0.5) * this.screenShake * 2, (Math.random() - 0.5) * this.screenShake * 2);
+    this.ctx.fillStyle = '#000';
+    this.ctx.fillRect(-10, -10, this.canvas.width + 20, this.canvas.height + 20);
+    this.drawStars();
+
+    if (this.state === 'playing' || this.state === 'paused') {
+      this.drawAsteroids();
+      this.drawBullets();
+      this.drawMines();
+      this.drawPowerups();
+      this.drawShip();
+      this.drawParticles();
+      this.drawFloatingTexts();
+      this.drawHUD();
+      if (this.state === 'paused') this.drawPauseOverlay();
+    }
+    this.ctx.restore();
+  }
+
+  drawStars() {
+    if (!this.starsCache.length) {
+      for (let i = 0; i &lt; CONFIG.STAR_COUNT; i++) {
+        this.starsCache.push({ x: Math.random() * this.canvas.width, y: Math.random() * this.canvas.height, size: Math.random() * 1.5, brightness: 0.2 + Math.random() * 0.5 });
+      }
+    }
+    for (const s of this.starsCache) {
+      this.ctx.beginPath(); this.ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(255,255,255,${s.brightness})`; this.ctx.fill();
+    }
+  }
+
+  drawShip() {
+    if (!this.ship.alive) {
+      const progress = 1 - this.ship.explodeTimer / CONFIG.SHIP_EXPLODE_FRAMES;
+      const r = this.ship.radius * progress * 3;
+      this.ctx.beginPath(); this.ctx.arc(this.ship.x, this.ship.y, r, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(255,100,0,${1 - progress})`; this.ctx.lineWidth = 3 - progress * 2; this.ctx.stroke();
+      return;
+    }
+    if (this.respawnInvincible && this.shipInvincible &gt; 0 && Math.floor(this.shipInvincible / 5) % 2 === 0) return;
+
+    this.ctx.save();
+    this.ctx.translate(this.ship.x, this.ship.y);
+    this.ctx.rotate(this.ship.angle);
+    this.ctx.beginPath();
+    this.ctx.moveTo(this.ship.radius, 0);
+    this.ctx.lineTo(-this.ship.radius * 0.7, -this.ship.radius * 0.6);
+    this.ctx.lineTo(-this.ship.radius * 0.3, 0);
+    this.ctx.lineTo(-this.ship.radius * 0.7, this.ship.radius * 0.6);
+    this.ctx.closePath();
+    this.ctx.strokeStyle = '#fff'; this.ctx.lineWidth = 2; this.ctx.stroke();
+
+    if (this.shieldTimer &gt; 0) {
+      const shieldPulse = Math.sin(Date.now() * 0.008) * 0.15 + 0.35;
+      const shieldR = this.ship.radius + 10;
+      this.ctx.beginPath(); this.ctx.arc(0, 0, shieldR + 4, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(0,255,255,${shieldPulse * 0.15})`; this.ctx.fill();
+      this.ctx.beginPath(); this.ctx.arc(0, 0, shieldR, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(0,255,255,${shieldPulse + 0.15})`; this.ctx.lineWidth = 2.5; this.ctx.stroke();
+      this.ctx.beginPath(); this.ctx.arc(0, 0, shieldR - 3, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(0,255,255,${shieldPulse * 0.5})`; this.ctx.lineWidth = 1; this.ctx.stroke();
+      for (let i = 0; i &lt; 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + Date.now() * 0.001;
+        const x1 = Math.cos(a) * (shieldR - 5); const y1 = Math.sin(a) * (shieldR - 5);
+        const x2 = Math.cos(a + 0.5) * (shieldR + 5); const y2 = Math.sin(a + 0.5) * (shieldR + 5);
+        this.ctx.beginPath(); this.ctx.moveTo(x1, y1); this.ctx.lineTo(x2, y2);
+        this.ctx.strokeStyle = `rgba(0,255,255,${shieldPulse * 0.3})`; this.ctx.lineWidth = 1; this.ctx.stroke();
+      }
+    }
+    if (this.spreadShotTimer &gt; 0) {
+      this.ctx.beginPath(); this.ctx.arc(0, 0, this.ship.radius + 6, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(0,255,0,${0.2 + Math.sin(Date.now() * 0.02) * 0.15})`; this.ctx.lineWidth = 1; this.ctx.stroke();
+    }
+    if (this.extendedRangeTimer &gt; 0) {
+      this.ctx.beginPath(); this.ctx.arc(0, 0, this.ship.radius + 10, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(255,255,0,${0.15 + Math.sin(Date.now() * 0.02) * 0.1})`; this.ctx.lineWidth = 1;
+      this.ctx.setLineDash([4, 4]); this.ctx.stroke(); this.ctx.setLineDash([]);
+    }
+    if (this.ship.thrusting) {
+      const flicker = Math.sin(this.ship.thrustFlicker * 0.5) * 5;
+      this.ctx.beginPath(); this.ctx.moveTo(-this.ship.radius * 0.3, -this.ship.radius * 0.3);
+      this.ctx.lineTo(-this.ship.radius * 0.3 - this.ship.radius * 0.8 - flicker, 0);
+      this.ctx.lineTo(-this.ship.radius * 0.3, this.ship.radius * 0.3);
+      this.ctx.strokeStyle = '#f80'; this.ctx.lineWidth = 2; this.ctx.stroke();
+      this.ctx.beginPath(); this.ctx.moveTo(-this.ship.radius * 0.3, -this.ship.radius * 0.15);
+      this.ctx.lineTo(-this.ship.radius * 0.3 - this.ship.radius * 0.4 - flicker * 0.5, 0);
+      this.ctx.lineTo(-this.ship.radius * 0.3, this.ship.radius * 0.15);
+      this.ctx.strokeStyle = '#ff0'; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+    }
+    this.ctx.restore();
+  }
+
+  drawAsteroids() {
+    for (const a of this.asteroids) {
+      this.ctx.save(); this.ctx.translate(a.x, a.y); this.ctx.rotate(a.rotation);
+      this.ctx.beginPath(); this.ctx.moveTo(a.vertices[0].x, a.vertices[0].y);
+      for (let i = 1; i &lt; a.vertices.length; i++) this.ctx.lineTo(a.vertices[i].x, a.vertices[i].y);
+      this.ctx.closePath(); this.ctx.strokeStyle = '#aaa'; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+      this.ctx.restore();
+    }
+  }
+
+  drawBullets() {
+    for (const b of this.bullets) {
+      const alpha = b.life / CONFIG.BULLET_LIFE;
+      this.ctx.beginPath(); this.ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(255,255,255,${alpha})`; this.ctx.fill();
+      this.ctx.beginPath(); this.ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(200,200,255,${alpha * 0.3})`; this.ctx.fill();
+    }
+  }
+
+  drawMines() {
+    for (const m of this.mines) {
+      const pulse = Math.sin(m.pulsePhase) * 0.3 + 0.7;
+      if (m.exploding) {
+        const progress = 1 - m.explodeTimer / CONFIG.MINE_EXPLOSION_TIME;
+        const r = CONFIG.MINE_EXPLOSION_RADIUS * progress;
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, r, 0, Math.PI * 2);
+        this.ctx.strokeStyle = `rgba(255,200,0,${1 - progress})`; this.ctx.lineWidth = 3 - progress * 2; this.ctx.stroke();
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, r * 0.6, 0, Math.PI * 2);
+        this.ctx.fillStyle = `rgba(255,100,0,${(1 - progress) * 0.3})`; this.ctx.fill();
+        continue;
+      }
+      if (m.arming) {
+        const blinkOn = Math.sin(m.pulsePhase / CONFIG.MINE_BLINK_RATE) &gt; 0;
+        const alpha = blinkOn ? 0.8 : 0.15;
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, m.radius + 4, 0, Math.PI * 2);
+        this.ctx.fillStyle = `rgba(255,136,0,${alpha * 0.2})`; this.ctx.fill();
+        this.ctx.strokeStyle = `rgba(255,136,0,${alpha})`; this.ctx.lineWidth = 2; this.ctx.stroke();
+        const s = m.radius * 0.5;
+        this.ctx.beginPath(); this.ctx.moveTo(m.x - s, m.y); this.ctx.lineTo(m.x + s, m.y);
+        this.ctx.moveTo(m.x, m.y - s); this.ctx.lineTo(m.x, m.y + s);
+        this.ctx.strokeStyle = `rgba(255,200,0,${alpha})`; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+        const progress = 1 - m.armTimer / CONFIG.MINE_ARM_TIME;
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, m.radius + 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+        this.ctx.strokeStyle = `rgba(255,200,0,${alpha * 0.6})`; this.ctx.lineWidth = 2; this.ctx.stroke();
+        if (progress &gt; 0.3) {
+          this.ctx.font = '9px Courier New'; this.ctx.fillStyle = `rgba(255,200,0,${alpha * 0.8})`;
+          this.ctx.textAlign = 'center'; this.ctx.fillText('ARMIN', m.x, m.y - m.radius - 14);
+        }
+      } else if (m.armed) {
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2);
+        this.ctx.fillStyle = `rgba(255,136,0,${pulse * 0.3})`; this.ctx.fill();
+        this.ctx.strokeStyle = `rgba(255,136,0,${pulse})`; this.ctx.lineWidth = 2; this.ctx.stroke();
+        const s = m.radius * 0.5;
+        this.ctx.beginPath(); this.ctx.moveTo(m.x - s, m.y); this.ctx.lineTo(m.x + s, m.y);
+        this.ctx.moveTo(m.x, m.y - s); this.ctx.lineTo(m.x, m.y + s);
+        this.ctx.strokeStyle = `rgba(255,200,0,${pulse})`; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, m.radius + 4, 0, Math.PI * 2);
+        this.ctx.strokeStyle = `rgba(255,136,0,${pulse * 0.2})`; this.ctx.lineWidth = 1; this.ctx.stroke();
+        this.ctx.font = '9px Courier New'; this.ctx.fillStyle = `rgba(255,200,0,${pulse * 0.7})`;
+        this.ctx.textAlign = 'center'; this.ctx.fillText('ARMED', m.x, m.y - m.radius - 14);
+      }
+    }
+  }
+
+  drawPowerups() {
+    for (const p of this.powerups) {
+      const pulse = Math.sin(p.pulsePhase) * 0.3 + 0.7;
+      const alpha = p.life &lt; 180 ? (Math.sin(p.life * 0.15) * 0.5 + 0.5) : 1;
+      this.ctx.save(); this.ctx.translate(p.x, p.y);
+      const hex = p.color;
+      const r = parseInt(hex.slice(1, 3), 16); const g = parseInt(hex.slice(3, 5), 16); const b = parseInt(hex.slice(5, 7), 16);
+      this.ctx.beginPath(); this.ctx.arc(0, 0, p.radius + 8, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(${r},${g},${b},${pulse * 0.1})`; this.ctx.fill();
+      const rotAngle = Date.now() * 0.003;
+      this.ctx.beginPath(); this.ctx.arc(0, 0, p.radius + 4, rotAngle, rotAngle + Math.PI * 1.5);
+      this.ctx.strokeStyle = `rgba(${r},${g},${b},${pulse * alpha * 0.5})`; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+      this.ctx.beginPath(); this.ctx.arc(0, 0, p.radius, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(${r},${g},${b},${pulse * alpha})`; this.ctx.lineWidth = 2; this.ctx.stroke();
+      this.ctx.font = 'bold 14px Courier New'; this.ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle'; this.ctx.fillText(p.label, 0, 0);
+      this.ctx.restore();
+    }
+  }
+
+  drawParticles() {
+    for (const p of this.particles) {
+      const alpha = p.life / p.maxLife;
+      this.ctx.globalAlpha = alpha;
+      this.ctx.beginPath(); this.ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+      this.ctx.fillStyle = p.color; this.ctx.fill();
+      this.ctx.globalAlpha = 1;
+    }
+  }
+
+  drawFloatingTexts() {
+    for (const ft of this.floatingTexts) {
+      const alpha = ft.life / ft.maxLife;
+      this.ctx.globalAlpha = alpha;
+      this.ctx.font = 'bold 20px Courier New'; this.ctx.fillStyle = ft.color;
+      this.ctx.textAlign = 'center'; this.ctx.fillText(ft.text, ft.x, ft.y);
+      this.ctx.globalAlpha = 1;
+    }
+  }
+
+  drawHUD() {
+    this.drawActivePowerups();
+
+    this.ctx.font = 'bold 24px Courier New'; this.ctx.fillStyle = '#fff'; this.ctx.textAlign = 'left';
+    this.ctx.fillText(`SCORE: ${this.score}`, 20, 35);
+    this.ctx.font = '16px Courier New'; this.ctx.fillStyle = '#888';
+    this.ctx.fillText(`HI: ${this.highScore}`, 20, 58);
+    this.ctx.font = 'bold 20px Courier New'; this.ctx.fillStyle = '#0ff'; this.ctx.textAlign = 'center';
+    this.ctx.fillText(`LEVEL ${this.level}`, this.canvas.width / 2, 35);
+    this.ctx.textAlign = 'right'; this.ctx.font = 'bold 24px Courier New'; this.ctx.fillStyle = '#fff';
+    this.ctx.fillText(`LIVES:`, this.canvas.width - 100, 35);
+    for (let i = 0; i &lt; this.lives; i++) {
+      const lx = this.canvas.width - 80 + i * 30; const ly = 30;
+      this.ctx.save(); this.ctx.translate(lx, ly); this.ctx.rotate(-Math.PI / 2);
+      this.ctx.beginPath(); this.ctx.moveTo(CONFIG.SHIP_SIZE * 0.5, 0);
+      this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.35, -CONFIG.SHIP_SIZE * 0.3);
+      this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.15, 0);
+      this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.35, CONFIG.SHIP_SIZE * 0.3);
+      this.ctx.closePath(); this.ctx.strokeStyle = '#fff'; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+      this.ctx.restore();
+    }
+    this.ctx.textAlign = 'right'; this.ctx.font = '14px Courier New'; this.ctx.fillStyle = '#666';
+    this.ctx.fillText(`ASTEROIDS: ${this.asteroids.length}`, this.canvas.width - 20, this.canvas.height - 15);
+
+    let timerY = CONFIG.HUD_TOP_MARGIN; this.ctx.textAlign = 'left'; this.ctx.font = '14px Courier New';
+    if (this.spreadShotTimer &gt; 0) { this.ctx.fillStyle = '#0f0'; this.ctx.fillText(`SPREAD: ${Math.ceil(this.spreadShotTimer / 60)}s`, 20, timerY); timerY += CONFIG.HUD_LINE_HEIGHT; }
+    if (this.extendedRangeTimer &gt; 0) { this.ctx.fillStyle = '#ff0'; this.ctx.fillText(`RANGE: ${Math.ceil(this.extendedRangeTimer / 60)}s`, 20, timerY); timerY += CONFIG.HUD_LINE_HEIGHT; }
+    if (this.shieldTimer &gt; 0) { this.ctx.fillStyle = '#0ff'; this.ctx.fillText(`SHIELD: ${Math.ceil(this.shieldTimer / 60)}s`, 20, timerY); timerY += CONFIG.HUD_LINE_HEIGHT; }
+    if (this.timeSlowFactor &lt; 1) { this.ctx.fillStyle = '#f0f'; this.ctx.fillText(`SLOW TIME!`, 20, timerY); timerY += CONFIG.HUD_LINE_HEIGHT; }
+
+    this.ctx.fillStyle = '#888'; this.ctx.font = '13px Courier New'; timerY = CONFIG.HUD_TOP_MARGIN;
+    const portalReady = this.portalCooldown &lt;= 0;
+    this.ctx.fillStyle = portalReady ? '#0ff' : '#f00';
+    this.ctx.fillText(`PORTAL: ${portalReady ? 'READY' : `${Math.ceil(this.portalCooldown / 60)}s`}`, 20, timerY);
+    timerY += 16;
+    this.ctx.fillStyle = this.mineCount &gt; 0 ? '#f80' : '#888';
+    this.ctx.fillText(`MINES: ${this.mineCount}/${CONFIG.MINE_MAX} (${this.mines.length} active)`, 20, timerY);
+    timerY += 16;
+    this.ctx.fillStyle = !this.bombUsed ? '#f00' : '#888';
+    this.ctx.fillText(`BOMB: ${this.bombUsed ? 'USED' : 'READY'}`, 20, timerY);
+    timerY += 16;
+    this.ctx.fillStyle = !this.shieldUsed ? '#0ff' : '#888';
+    this.ctx.fillText(`SHIELD: ${this.shieldUsed ? 'USED' : 'READY'}`, 20, timerY);
+
+    if (this.levelTransition &gt; 0) {
+      this.levelTransition--;
+      const alpha = Math.min(1, this.levelTransition / 30);
+      this.ctx.globalAlpha = alpha;
+      this.ctx.font = 'bold 48px Courier New'; this.ctx.fillStyle = '#0ff'; this.ctx.textAlign = 'center';
+      this.ctx.fillText(`LEVEL ${this.level}`, this.canvas.width / 2, this.canvas.height / 2 - 20);
+      this.ctx.font = '20px Courier New'; this.ctx.fillStyle = '#fff';
+      this.ctx.fillText('Get Ready!', this.canvas.width / 2, this.canvas.height / 2 + 20);
+      this.ctx.globalAlpha = 1;
+    }
+    if (this.powerupFlashTimer &gt; 0) {
+      this.ctx.fillStyle = `rgba(255,255,255,${this.powerupFlashTimer / 60 * 0.15})`;
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+
+    const stripY = this.canvas.height - CONFIG.HUD_BOTTOM_MARGIN;
+    this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    this.ctx.fillRect(0, stripY - 2, this.canvas.width, 32);
+    this.ctx.strokeStyle = 'rgba(100,100,100,0.3)'; this.ctx.lineWidth = 1;
+    this.ctx.beginPath(); this.ctx.moveTo(0, stripY - 2); this.ctx.lineTo(this.canvas.width, stripY - 2); this.ctx.stroke();
+    this.ctx.font = '13px Courier New'; this.ctx.textAlign = 'center';
+    const stripText = '←→ROTATE  ↑THRUST  SPACE:FIRE  Z:PORTAL(30s)  X:MINE(3)  C:SPREAD  V:SHIELD  B:BOMB  N:RANGE  M:TIMESLOW  P:PAUSE  R:RESTART';
+    this.ctx.fillStyle = 'rgba(220,220,220,0.95)';
+    this.ctx.fillText(stripText, this.canvas.width / 2, stripY + 16);
+  }
+
+  drawActivePowerups() {
+    let y = 55;
+    const centerX = this.canvas.width / 2;
+    this.ctx.font = 'bold 16px Courier New';
+    this.ctx.textAlign = 'center';
+
+    if (this.spreadShotTimer &gt; 0) {
+      const remaining = Math.ceil(this.spreadShotTimer / CONFIG.FPS);
+      this.ctx.fillStyle = '#0f0';
+      this.ctx.fillText(`SPREAD SHOT (${remaining}s)`, centerX, y);
+      y += CONFIG.HUD_LINE_HEIGHT;
+    }
+    if (this.extendedRangeTimer &gt; 0) {
+      const remaining = Math.ceil(this.extendedRangeTimer / CONFIG.FPS);
+      this.ctx.fillStyle = '#ff0';
+      this.ctx.fillText(`EXTENDED RANGE (${remaining}s)`, centerX, y);
+      y += CONFIG.HUD_LINE_HEIGHT;
+    }
+    if (this.shieldTimer &gt; 0) {
+      const remaining = Math.ceil(this.shieldTimer / CONFIG.FPS);
+      this.ctx.fillStyle = '#0ff';
+      this.ctx.fillText(`SHIELD (${remaining}s)`, centerX, y);
+      y += CONFIG.HUD_LINE_HEIGHT;
+    }
+    if (this.timeSlowFactor &lt; 1) {
+      this.ctx.fillStyle = '#f0f';
+      this.ctx.fillText(`TIME SLOW!`, centerX, y);
+      y += CONFIG.HUD_LINE_HEIGHT;
+    }
+  }
+
+  drawPauseOverlay() {
+    this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.font = 'bold 48px Courier New'; this.ctx.fillStyle = '#fff'; this.ctx.textAlign = 'center';
+    this.ctx.fillText('PAUSED', this.canvas.width / 2, this.canvas.height / 2);
+    this.ctx.font = '20px Courier New';
+    this.ctx.fillText('Press P to resume', this.canvas.width / 2, this.canvas.height / 2 + 40);
+  }
+
+  loop() {
+    this.update();
+    this.draw();
+    requestAnimationFrame(() =&gt; this.loop());
+  }
+}
+
+// Initialize game (global scope remains clean)
+const game = new Game();
+&lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+```
+
+### User
+there's something wrong with the +life power up
+- i got multi +life power, it keeps spawning after dying when i'm at level 3. This should not be possible, i rate limit that to no more than once per 2 game levels, doesn't matter if i died or the game is too easy with infinite top up of lives. Verify logic of the +life spawning and frequency cap
+- display issue. I'm at more than 3 lives but due to display at top right, more than 3 ship icons is off screen. Instead of 1 row, format it so lives 4-6 are on second row below the first 3 ship icons at top right, then third row for lives 7-9. Hard cap lives gainable to 9 max
+
+### Assistant
+The user is reporting two issues with the `+life` power-up:
+1.  **Spawning Frequency Bug**: The `+life` power-up is spawning too frequently, even after dying and restarting at the same level. The rate limit should be "once per 2 game levels", but it seems to be checking `this.level` which might be resetting or the condition isn't working as intended. Also, the user mentions "doesn't matter if i died", implying the level counter might not be the right metric, or the check `this.level - this.lastLifePowerupLevel &lt; CONFIG.LIFE_POWERUP_COOLDOWN_LEVELS` is flawed because `this.level` resets on death? Wait, looking at the code, `this.level` does NOT reset on death. Only `this.lives` resets. But the user says "after dying when i'm at level 3". This suggests that maybe `this.level` is being reset somewhere, or the condition is evaluating incorrectly. Actually, looking at `init()`, `this.level = 0;` is called. So on death, level resets to 0. If the user dies at level 3, `this.level` becomes 0. Then they play again, reach level 1, 2, 3. The condition `this.level - this.lastLifePowerupLevel &lt; 2` would allow spawning at level 1 if `lastLifePowerupLevel` was 0. Wait, `lastLifePowerupLevel` is also reset in `init()`. So every time you die, the counter resets. That's the bug! The cooldown should persist across lives, or be based on actual level progression regardless of death. But the user says "rate limit that to no more than once per 2 game levels, doesn't matter if i died". This implies the cooldown should be tracked globally or at least not reset on death. I'll change `this.lastLifePowerupLevel` to not reset on death, or better, track it as `this.lifePowerupLastSpawnedLevel` and only reset it if `this.level` drops below it (which shouldn't happen normally, but if it does, we clamp it). Actually, the simplest fix is to initialize `this.lifePowerupLastSpawnedLevel = 0` only once, or just not reset it in `init()`. But `init()` is called on death. I'll remove the reset of `this.lastLifePowerupLevel` from `init()`, and ensure it's clamped correctly.
+
+2.  **Display Issue**: Lives &gt; 3 go off-screen. Need to format lives 4-6 on a second row, 7-9 on a third. Hard cap at 9.
+
+Let's fix the spawning logic first:
+Current:
+```javascript
+    if (type === 'life' && (this.level - this.lastLifePowerupLevel) &lt; CONFIG.LIFE_POWERUP_COOLDOWN_LEVELS) {
+      const otherTypes = types.filter(t =&gt; t !== 'life');
+      type = otherTypes[Math.floor(Math.random() * otherTypes.length)];
+    }
+```
+Bug: `this.lastLifePowerupLevel` is reset in `init()`. So on death, it becomes 0. If you are at level 3, die, restart at level 0, you can spawn it at level 1, 2, 3 again.
+Fix: Don't reset `this.lastLifePowerupLevel` in `init()`. Also, ensure `this.lastLifePowerupLevel` is initialized properly. I'll move it to class initialization or just not reset it. I'll also clamp it to `this.level` just in case.
+
+Actually, the prompt says "rate limit that to no more than once per 2 game levels, doesn't matter if i died". This means the cooldown should persist across deaths. So I will remove `this.lastLifePowerupLevel = 0;` from `init()`. I'll also make sure it's initialized in the constructor or first run.
+
+Let's check the display logic for lives:
+Current:
+```javascript
+    for (let i = 0; i &lt; this.lives; i++) {
+      const lx = this.canvas.width - 80 + i * 30; const ly = 30;
+      // draw ship
+    }
+```
+Fix: Need to wrap lives into rows of 3.
+`const livesPerRow = 3;`
+`const rows = Math.ceil(this.lives / livesPerRow);`
+`for (let r = 0; r &lt; rows; r++) {`
+  `for (let i = 0; i &lt; livesPerRow; i++) {`
+    `const idx = r * livesPerRow + i;`
+    `if (idx &gt;= this.lives) break;`
+    `const lx = this.canvas.width - 80 + i * 30;`
+    `const ly = 30 + r * 35;` // offset y for each row
+    // draw
+  `}`
+`}`
+Also, hard cap lives at 9. I'll add `this.lives = Math.min(this.lives, 9);` after gaining life.
+
+Let's implement these fixes carefully.
+
+Check `init()` function:
+```javascript
+    this.lastLifePowerupLevel = 0; // REMOVE THIS
+```
+I'll remove it. I'll also initialize it in the constructor or just let it be `0` initially.
+
+Check `spawnPowerup()`:
+```javascript
+    let type = types[Math.floor(Math.random() * types.length)];
+    if (type === 'life' && (this.level - this.lastLifePowerupLevel) &lt; CONFIG.LIFE_POWERUP_COOLDOWN_LEVELS) {
+      const otherTypes = types.filter(t =&gt; t !== 'life');
+      type = otherTypes[Math.floor(Math.random() * otherTypes.length)];
+    }
+```
+This logic is fine, but `this.level` might be less than `this.lastLifePowerupLevel` if level resets on death. I should clamp: `Math.max(0, this.level - this.lastLifePowerupLevel)`. Actually, if level resets, `this.level` becomes 0, so `0 - lastLevel` is negative. `Math.max(0, negative)` is 0, which is `&lt; 2`, so it would block spawning. That's actually correct behavior if we want to prevent spawning immediately after reset. But the user wants it to respect the cooldown across deaths. So `this.lastLifePowerupLevel` should persist.
+
+I will update `init()` to NOT reset `this.lastLifePowerupLevel`.
+I will also update the lives drawing to wrap into rows.
+I will add a hard cap of 9 to `this.lives`.
+
+Let's draft the changes:
+
+1. In `init()`: Remove `this.lastLifePowerupLevel = 0;`
+2. In `updatePowerups()` switch case for 'life': `this.lives = Math.min(this.lives + 1, 9);`
+3. In `drawHUD()`: Replace the lives drawing loop with a row-based loop.
+
+Let's verify the lives drawing loop:
+```javascript
+    const livesPerRow = 3;
+    const maxLives = 9;
+    const livesToDraw = Math.min(this.lives, maxLives);
+    const rows = Math.ceil(livesToDraw / livesPerRow);
+    for (let r = 0; r &lt; rows; r++) {
+      for (let i = 0; i &lt; livesPerRow; i++) {
+        const idx = r * livesPerRow + i;
+        if (idx &gt;= livesToDraw) break;
+        const lx = this.canvas.width - 80 + i * 30;
+        const ly = 30 + r * 35; // 35px vertical spacing
+        this.ctx.save();
+        this.ctx.translate(lx, ly);
+        this.ctx.rotate(-Math.PI / 2);
+        this.ctx.beginPath();
+        this.ctx.moveTo(CONFIG.SHIP_SIZE * 0.5, 0);
+        this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.35, -CONFIG.SHIP_SIZE * 0.3);
+        this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.15, 0);
+        this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.35, CONFIG.SHIP_SIZE * 0.3);
+        this.ctx.closePath();
+        this.ctx.strokeStyle = '#fff';
+        this.ctx.lineWidth = 1.5;
+        this.ctx.stroke();
+        this.ctx.restore();
+      }
+    }
+```
+This looks solid.
+
+One minor thing: `this.lastLifePowerupLevel` might be uninitialized if `init()` is called before constructor runs? No, constructor runs first. I'll initialize it in the constructor to be safe: `this.lastLifePowerupLevel = 0;` in constructor, and remove it from `init()`.
+
+Wait, the prompt says "rate limit that to no more than once per 2 game levels". If `this.level` resets on death, `this.level - this.lastLifePowerupLevel` becomes negative. `Math.max(0, this.level - this.lastLifePowerupLevel)` handles it. I'll add that clamp to be robust.
+
+Let's update the code accordingly.
+
+I will output the full HTML with these fixes.
+All other code remains unchanged.
+Checking for regressions: The lives display fix only affects `drawHUD()`. The spawning fix only affects `init()` and `spawnPowerup()`. The cap affects `updatePowerups()`.
+Everything looks good.
+Proceeding. 
+Output matches the response.
+
+&lt;/think&gt;
+
+
+```html
+&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+&lt;head&gt;
+&lt;meta charset="UTF-8"&gt;
+&lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;
+&lt;title&gt;Asteroids - Arcade Classic&lt;/title&gt;
+&lt;style&gt;
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+background: #000;
+display: flex;
+justify-content: center;
+align-items: center;
+height: 100vh;
+width: 100vw;
+overflow: hidden;
+font-family: 'Courier New', monospace;
+}
+canvas { display: block; }
+#ui-overlay {
+position: absolute;
+top: 0; left: 0;
+width: 100%; height: 100%;
+display: flex;
+justify-content: center;
+align-items: center;
+pointer-events: none;
+}
+#start-screen, #game-over-screen {
+text-align: center;
+color: #fff;
+pointer-events: auto;
+}
+#start-screen h1 {
+font-size: clamp(36px, 6vw, 64px);
+color: #fff;
+text-shadow: 0 0 20px #fff, 0 0 40px #888;
+margin-bottom: 20px;
+letter-spacing: 8px;
+}
+#start-screen p, #game-over-screen p {
+font-size: clamp(14px, 1.8vw, 18px);
+color: #aaa;
+margin: 10px 0;
+}
+.blink {
+animation: blink 1s infinite;
+font-size: clamp(18px, 2.2vw, 24px);
+color: #fff;
+margin-top: 30px;
+}
+@keyframes blink {
+0%, 100% { opacity: 1; }
+50% { opacity: 0; }
+}
+#game-over-screen h1 {
+font-size: clamp(36px, 5vw, 48px);
+color: #f00;
+text-shadow: 0 0 20px #f00;
+margin-bottom: 20px;
+}
+#game-over-screen .score {
+font-size: clamp(24px, 3vw, 32px);
+color: #fff;
+margin: 20px 0;
+}
+.controls-info {
+font-size: clamp(11px, 1.3vw, 14px);
+color: #666;
+margin-top: 30px;
+line-height: 2;
+text-align: left;
+display: inline-block;
+}
+.controls-info .key {
+color: #0ff;
+font-weight: bold;
+}
+.controls-info .section {
+color: #888;
+margin-top: 8px;
+display: block;
+}
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+
+&lt;canvas id="gameCanvas"&gt;&lt;/canvas&gt;
+
+&lt;div id="ui-overlay"&gt;
+&lt;div id="start-screen"&gt;
+&lt;h1&gt;ASTEROIDS&lt;/h1&gt;
+&lt;p&gt;Destroy all asteroids to advance&lt;/p&gt;
+&lt;p class="blink"&gt;PRESS SPACE TO START&lt;/p&gt;
+&lt;div class="controls-info"&gt;
+&lt;span class="section"&gt;— NAVIGATION —&lt;/span&gt;
+&lt;span class="key"&gt;← →&lt;/span&gt; ROTATE &nbsp;|&nbsp; &lt;span class="key"&gt;↑&lt;/span&gt; THRUST&lt;br&gt;
+&lt;span class="key"&gt;SPACE&lt;/span&gt; FIRE&lt;br&gt;
+&lt;span class="key"&gt;Z&lt;/span&gt; PORTAL (30s cooldown, jumps half screen forward)&lt;br&gt;
+&lt;span class="section"&gt;— POWERS —&lt;/span&gt;
+&lt;span class="key"&gt;X&lt;/span&gt; DEPLOY MINE (carry 3, arms after you leave)&lt;br&gt;
+&lt;span class="key"&gt;C&lt;/span&gt; SPREAD SHOT (30s)&lt;br&gt;
+&lt;span class="key"&gt;V&lt;/span&gt; SHIELD (20s, once per life)&lt;br&gt;
+&lt;span class="key"&gt;B&lt;/span&gt; BOMB (hits all asteroids)&lt;br&gt;
+&lt;span class="key"&gt;N&lt;/span&gt; EXTENDED RANGE (30s)&lt;br&gt;
+&lt;span class="key"&gt;M&lt;/span&gt; TIME SLOW (16s)&lt;br&gt;
+&lt;span class="section"&gt;— OTHER —&lt;/span&gt;
+&lt;span class="key"&gt;P&lt;/span&gt; PAUSE &nbsp;|&nbsp; &lt;span class="key"&gt;R&lt;/span&gt; RESTART
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div id="game-over-screen" style="display:none;"&gt;
+&lt;h1&gt;GAME OVER&lt;/h1&gt;
+&lt;div class="score" id="final-score"&gt;&lt;/div&gt;
+&lt;p id="final-level"&gt;&lt;/p&gt;
+&lt;p class="blink"&gt;PRESS SPACE TO RESTART&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+/**
+ * CENTRALIZED CONFIGURATION
+ * All magic numbers, durations, and tunables are extracted here.
+ */
+const CONFIG = {
+  // Core Physics
+  FPS: 60,
+  SHIP_SIZE: 20,
+  SHIP_THRUST: 0.075,
+  SHIP_TURN_SPEED: 0.07,
+  BULLET_SPEED: 8,
+  BULLET_LIFE: 55,
+  BASE_ASTEROID_VEL: 0.75,
+  ASTEROID_SPEED_SCALE: 0.1,
+  ASTEROID_RANDOM_VEL: 1.3,
+  FRICTION: 0.995,
+  MAX_SHIP_SPEED: 7,
+
+  // Timers & Cooldowns (in frames)
+  INVINCIBLE_TIME: 180,
+  PORTAL_COOLDOWN: 1800, // 30s
+  FIRE_RATE: 40,
+  SHIP_EXPLODE_FRAMES: 90,
+  MINE_ARM_TIME: 90, // 1.5s
+  MINE_ARM_DISTANCE: 80,
+  MINE_BLINK_RATE: 0.15,
+  MINE_LIFETIME: 7200, // 120s
+  MINE_EXPLOSION_TIME: 60,
+  MINE_EXPLOSION_RADIUS: 70,
+  POWERUP_SPAWN_INTERVAL: 1200, // 20s
+  POWERUP_LIFETIME: 1200, // 20s
+
+  // Power-up Durations (in frames)
+  POWER_SPREAD: 1800,    // 30s
+  POWER_SHIELD: 1200,    // 20s
+  POWER_EXTENDED: 1800,  // 30s
+  POWER_TIME_SLOW: 960,  // 16s
+  TIME_SLOW_DURATION_MS: 16000,
+
+  // Collision & Spacing Buffers
+  BULLET_COLLISION_BUFFER: 5,
+  SHIP_COLLISION_RADIUS_MULT: 0.6,
+  MINE_COLLISION_BUFFER: 10,
+  POWERUP_COLLISION_BUFFER: 10,
+  SAFE_SPAWN_DISTANCE: 180,
+  POWERUP_SAFE_SPAWN_DISTANCE: 150,
+  PORTAL_JUMP_FACTOR: 0.4,
+  REPULSION_FORCE: 2.5,
+
+  // Level Scaling
+  LEVEL_ASTEROID_BASE: 3,
+  LEVEL_ASTEROID_SCALE: 1.5,
+
+  // Range & Distances
+  NORMAL_RANGE_MAX_DIST: 300,
+  EXTENDED_RANGE_MAX_DIST: 900,
+
+  // Visual & FX
+  SCREEN_SHAKE_DECAY: 0.8,
+  SCREEN_SHAKE_THRESHOLD: 0.5,
+  STAR_COUNT: 200,
+  PARTICLE_LIFE_MIN: 30,
+  PARTICLE_LIFE_MAX: 60,
+  FLOATING_TEXT_LIFE: 60,
+  POWERUP_FLASH_LIFE: 30,
+
+  // Mines
+  MINE_MAX: 3,
+
+  // HUD
+  HUD_LINE_HEIGHT: 18,
+  HUD_TOP_MARGIN: 70,
+  HUD_BOTTOM_MARGIN: 35,
+
+  // Life Power-up
+  LIFE_POWERUP_COOLDOWN_LEVELS: 2,
+  MAX_LIVES: 9
+};
+
+/**
+ * GAME CLASS
+ * Encapsulates all state, logic, and rendering.
+ */
+class Game {
+  constructor() {
+    this.canvas = document.getElementById('gameCanvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.resize();
+    window.addEventListener('resize', () =&gt; this.resize());
+
+    this.keys = {};
+    this.setupInput();
+
+    // Game State
+    this.state = 'start';
+    this.level = 0;
+    this.score = 0;
+    this.lives = 3;
+    this.highScore = parseInt(localStorage.getItem('asteroidsHighScore')) || 0;
+    this.lastLifePowerupLevel = 0; // Persist across deaths to enforce cooldown
+
+    // Entities
+    this.ship = null;
+    this.asteroids = [];
+    this.bullets = [];
+    this.particles = [];
+    this.floatingTexts = [];
+    this.mines = [];
+    this.powerups = [];
+
+    // Timers & Flags
+    this.shootCooldown = 0;
+    this.shipInvincible = 0;
+    this.respawnInvincible = false;
+    this.levelTransition = 0;
+    this.screenShake = 0;
+    this.portalCooldown = 0;
+    this.mineCount = 0;
+    this.powerupSpawnTimer = 0;
+    this.timeSlowFactor = 1;
+    this.spreadShotTimer = 0;
+    this.extendedRangeTimer = 0;
+    this.shieldTimer = 0;
+    this.bombUsed = false;
+    this.shieldUsed = false;
+    this.powerupFlashTimer = 0;
+
+    // Star cache (module-level for performance)
+    this.starsCache = [];
+
+    this.init();
+    this.loop();
+  }
+
+  resize() {
+    this.canvas.width = window.innerWidth;
+    this.canvas.height = window.innerHeight;
+  }
+
+  setupInput() {
+    document.addEventListener('keydown', (e) =&gt; {
+      this.keys[e.code] = true;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (this.state === 'start') {
+          this.hideStartScreen();
+          this.state = 'playing';
+          this.init();
+        } else if (this.state === 'gameover') {
+          this.hideGameOverScreen();
+          this.state = 'playing';
+          this.init();
+        }
+      }
+      if (e.code === 'KeyP' && this.state === 'playing') this.state = 'paused';
+      else if (e.code === 'KeyP' && this.state === 'paused') this.state = 'playing';
+      if (e.code === 'KeyR') {
+        this.state = 'playing';
+        this.hideGameOverScreen();
+        this.init();
+      }
+    });
+    document.addEventListener('keyup', (e) =&gt; { this.keys[e.code] = false; });
+  }
+
+  hideStartScreen() { document.getElementById('start-screen').style.display = 'none'; }
+  hideGameOverScreen() { document.getElementById('game-over-screen').style.display = 'none'; }
+
+  init() {
+    this.ship = this.createShip();
+    this.asteroids = [];
+    this.bullets = [];
+    this.particles = [];
+    this.floatingTexts = [];
+    this.mines = [];
+    this.powerups = [];
+    this.score = 0;
+    this.lives = 3;
+    this.level = 0;
+    this.shipInvincible = 0;
+    this.respawnInvincible = false;
+    this.levelTransition = 0;
+    this.screenShake = 0;
+    this.portalCooldown = 0;
+    this.mineCount = 1;
+    // NOTE: this.lastLifePowerupLevel is intentionally NOT reset here to persist across deaths
+    this.powerupSpawnTimer = 0;
+    this.timeSlowFactor = 1;
+    this.spreadShotTimer = 0;
+    this.extendedRangeTimer = 0;
+    this.shieldTimer = 0;
+    this.bombUsed = false;
+    this.shieldUsed = false;
+    this.powerupFlashTimer = 0;
+    this.nextLevel();
+  }
+
+  nextLevel() {
+    this.level++;
+    this.levelTransition = CONFIG.FPS * 2;
+    const count = CONFIG.LEVEL_ASTEROID_BASE + Math.floor(this.level * CONFIG.LEVEL_ASTEROID_SCALE);
+    this.spawnAsteroids(count);
+    this.createFloatingText(this.canvas.width / 2, this.canvas.height / 2, `LEVEL ${this.level}`, '#0ff');
+  }
+
+  spawnAsteroids(count) {
+    for (let i = 0; i &lt; count; i++) {
+      let x, y;
+      do {
+        x = Math.random() * this.canvas.width;
+        y = Math.random() * this.canvas.height;
+      } while (this.dist(x, y, this.ship.x, this.ship.y) &lt; CONFIG.SAFE_SPAWN_DISTANCE);
+      this.asteroids.push(this.createAsteroid(x, y, 'large'));
+    }
+  }
+
+  spawnPowerup() {
+    const types = ['spread', 'shield', 'bomb', 'extended', 'time_slow', 'mine', 'life'];
+    let type = types[Math.floor(Math.random() * types.length)];
+    
+    // Enforce cooldown for life power-up across deaths
+    const levelsSinceLast = Math.max(0, this.level - this.lastLifePowerupLevel);
+    if (type === 'life' && levelsSinceLast &lt; CONFIG.LIFE_POWERUP_COOLDOWN_LEVELS) {
+      const otherTypes = types.filter(t =&gt; t !== 'life');
+      type = otherTypes[Math.floor(Math.random() * otherTypes.length)];
+    }
+    
+    let x, y;
+    do {
+      x = 80 + Math.random() * (this.canvas.width - 160);
+      y = 80 + Math.random() * (this.canvas.height - 160);
+    } while (this.dist(x, y, this.ship.x, this.ship.y) &lt; CONFIG.POWERUP_SAFE_SPAWN_DISTANCE);
+    this.powerups.push(this.createPowerup(x, y, type));
+  }
+
+  // ─── ENTITY FACTORIES ───
+  createShip() {
+    return { x: this.canvas.width / 2, y: this.canvas.height / 2, vx: 0, vy: 0, angle: -Math.PI / 2, radius: CONFIG.SHIP_SIZE, thrusting: false, thrustFlicker: 0, alive: true, explodeTimer: 0 };
+  }
+
+  createAsteroid(x, y, size) {
+    const sizes = ['large', 'medium', 'small'];
+    const sizeIdx = sizes.indexOf(size);
+    const radii = [40, 22, 12];
+    const r = radii[sizeIdx];
+    const area = this.canvas.width * this.canvas.height;
+    const refArea = 1600 * 900;
+    const speedFactor = area &gt; refArea * 1.5 ? Math.max(0.4, 1.0 - (Math.log(area / refArea) * 0.3)) : 1.0;
+    const levelMult = 1 + (this.level * CONFIG.ASTEROID_SPEED_SCALE);
+    const speed = (CONFIG.BASE_ASTEROID_VEL + Math.random() * CONFIG.ASTEROID_RANDOM_VEL) * speedFactor * levelMult / (1 + sizeIdx * 0.5);
+    const angle = Math.random() * Math.PI * 2;
+    const vertices = [];
+    const numVerts = 8 + Math.floor(Math.random() * 5);
+    for (let i = 0; i &lt; numVerts; i++) {
+      const a = (i / numVerts) * Math.PI * 2;
+      const variation = 0.7 + Math.random() * 0.6;
+      vertices.push({ x: Math.cos(a) * r * variation, y: Math.sin(a) * r * variation });
+    }
+    return { x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, radius: r, vertices, rotationSpeed: (Math.random() - 0.5) * 0.04, rotation: Math.random() * Math.PI * 2, size, points: size === 'large' ? 20 : size === 'medium' ? 50 : 100 };
+  }
+
+  createMine(x, y) {
+    return { x, y, vx: (Math.random() - 0.5) * 0.3, vy: (Math.random() - 0.5) * 0.3, radius: 10, life: CONFIG.MINE_LIFETIME, arming: true, armTimer: CONFIG.MINE_ARM_TIME, armed: false, exploding: false, explodeTimer: 0, pulsePhase: Math.random() * Math.PI * 2 };
+  }
+
+  createPowerup(x, y, type) {
+    const types = ['spread', 'shield', 'bomb', 'extended', 'time_slow', 'mine', 'life'];
+    const typeIdx = types.indexOf(type);
+    const colors = ['#0f0', '#0ff', '#f00', '#ff0', '#f0f', '#f80', '#fff'];
+    const labels = ['≡', '○', '●', '⌇', '∞', '◆', '♥'];
+    return { x, y, vx: (Math.random() - 0.5) * 0.5, vy: (Math.random() - 0.5) * 0.5, radius: 12, life: CONFIG.POWERUP_LIFETIME, type, color: colors[typeIdx], label: labels[typeIdx], pulsePhase: Math.random() * Math.PI * 2 };
+  }
+
+  createExplosion(x, y, count, color, speed) {
+    for (let i = 0; i &lt; count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const spd = Math.random() * speed;
+      this.particles.push({ x, y, vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd, life: CONFIG.PARTICLE_LIFE_MIN + Math.random() * (CONFIG.PARTICLE_LIFE_MAX - CONFIG.PARTICLE_LIFE_MIN), maxLife: CONFIG.PARTICLE_LIFE_MAX, color: color || '#fff', size: 1 + Math.random() * 2 });
+    }
+  }
+
+  createFloatingText(x, y, text, color) {
+    this.floatingTexts.push({ x, y, text, color: color || '#fff', life: CONFIG.FLOATING_TEXT_LIFE, maxLife: CONFIG.FLOATING_TEXT_LIFE });
+  }
+
+  createPortalEffect(x, y, angle, entering) {
+    const count = 20;
+    for (let i = 0; i &lt; count; i++) {
+      const spread = (Math.random() - 0.5) * 0.5;
+      const dist = Math.random() * 30;
+      this.particles.push({
+        x: x + Math.cos(angle + spread) * dist, y: y + Math.sin(angle + spread) * dist,
+        vx: Math.cos(angle + spread) * (entering ? 1 : -1) * (1 + Math.random() * 2),
+        vy: Math.sin(angle + spread) * (entering ? 1 : -1) * (1 + Math.random() * 2),
+        life: 30 + Math.random() * 20, maxLife: 50, color: entering ? '#0ff' : '#f0f', size: 2 + Math.random() * 3
+      });
+    }
+  }
+
+  // ─── UPDATE LOOP ───
+  update() {
+    if (this.state !== 'playing') return;
+    this.updateShip();
+    this.updateBullets();
+    this.updateAsteroids();
+    this.updateMines();
+    this.updatePowerups();
+    this.checkCollisions();
+    this.updateParticles();
+    this.updateFloatingTexts();
+    this.handlePowerupSpawning();
+    this.handleLevelTransition();
+    this.handleScreenShake();
+  }
+
+  updateShip() {
+    if (!this.ship.alive) {
+      this.ship.explodeTimer--;
+      if (this.ship.explodeTimer &lt;= 0) {
+        this.lives--;
+        if (this.lives &lt;= 0) {
+          this.gameOver();
+        } else {
+          this.ship = this.createShip();
+          this.shipInvincible = CONFIG.INVINCIBLE_TIME;
+          this.respawnInvincible = true;
+          this.shieldTimer = 0;
+          this.spreadShotTimer = 0;
+          this.extendedRangeTimer = 0;
+          this.timeSlowFactor = 1;
+          this.bombUsed = false;
+          this.shieldUsed = false;
+          this.mineCount = 1;
+          this.createFloatingText(this.canvas.width / 2, this.canvas.height / 2, 'READY', '#0f0');
+        }
+      }
+      return;
+    }
+
+    if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.ship.angle -= CONFIG.SHIP_TURN_SPEED;
+    if (this.keys['ArrowRight'] || this.keys['KeyD']) this.ship.angle += CONFIG.SHIP_TURN_SPEED;
+
+    this.ship.thrusting = this.keys['ArrowUp'] || this.keys['KeyW'];
+    if (this.ship.thrusting) {
+      this.ship.vx += Math.cos(this.ship.angle) * CONFIG.SHIP_THRUST;
+      this.ship.vy += Math.sin(this.ship.angle) * CONFIG.SHIP_THRUST;
+      this.ship.thrustFlicker++;
+      const backAngle = this.ship.angle + Math.PI;
+      this.particles.push({
+        x: this.ship.x + Math.cos(backAngle) * this.ship.radius * 0.8,
+        y: this.ship.y + Math.sin(backAngle) * this.ship.radius * 0.8,
+        vx: Math.cos(backAngle) * 2 + (Math.random() - 0.5),
+        vy: Math.sin(backAngle) * 2 + (Math.random() - 0.5),
+        life: 15 + Math.random() * 10, maxLife: 25,
+        color: Math.random() &lt; 0.5 ? '#f80' : '#ff0', size: 2 + Math.random() * 2
+      });
+    }
+
+    this.ship.vx *= CONFIG.FRICTION;
+    this.ship.vy *= CONFIG.FRICTION;
+    const speed = Math.sqrt(this.ship.vx ** 2 + this.ship.vy ** 2);
+    if (speed &gt; CONFIG.MAX_SHIP_SPEED) { this.ship.vx = (this.ship.vx / speed) * CONFIG.MAX_SHIP_SPEED; this.ship.vy = (this.ship.vy / speed) * CONFIG.MAX_SHIP_SPEED; }
+    this.ship.x += this.ship.vx;
+    this.ship.y += this.ship.vy;
+    this.screenWrap(this.ship);
+
+    if (this.shootCooldown &gt; 0) this.shootCooldown--;
+    if (this.keys['Space'] && this.shootCooldown &lt;= 0 && this.ship.alive) {
+      this.shootCooldown = CONFIG.FIRE_RATE;
+      const noseX = this.ship.x + Math.cos(this.ship.angle) * this.ship.radius;
+      const noseY = this.ship.y + Math.sin(this.ship.angle) * this.ship.radius;
+      this.bullets.push({ x: noseX, y: noseY, vx: Math.cos(this.ship.angle) * CONFIG.BULLET_SPEED + this.ship.vx * 0.3, vy: Math.sin(this.ship.angle) * CONFIG.BULLET_SPEED + this.ship.vy * 0.3, life: CONFIG.BULLET_LIFE, radius: 2, distTraveled: 0 });
+      if (this.spreadShotTimer &gt; 0) {
+        for (let a = -1; a &lt;= 1; a += 2) {
+          const a2 = this.ship.angle + a * 0.25;
+          this.bullets.push({ x: noseX, y: noseY, vx: Math.cos(a2) * CONFIG.BULLET_SPEED + this.ship.vx * 0.3, vy: Math.sin(a2) * CONFIG.BULLET_SPEED + this.ship.vy * 0.3, life: CONFIG.BULLET_LIFE, radius: 2, distTraveled: 0 });
+        }
+      }
+    }
+
+    if (this.keys['KeyZ'] && this.portalCooldown &lt;= 0 && this.ship.alive) {
+      this.portalCooldown = CONFIG.PORTAL_COOLDOWN;
+      const jumpDist = Math.min(this.canvas.width, this.canvas.height) * CONFIG.PORTAL_JUMP_FACTOR;
+      let nx = this.ship.x + Math.cos(this.ship.angle) * jumpDist;
+      let ny = this.ship.y + Math.sin(this.ship.angle) * jumpDist;
+      if (nx &lt; 0) nx += this.canvas.width; if (nx &gt; this.canvas.width) nx -= this.canvas.width;
+      if (ny &lt; 0) ny += this.canvas.height; if (ny &gt; this.canvas.height) ny -= this.canvas.height;
+      this.createPortalEffect(this.ship.x, this.ship.y, this.ship.angle, false);
+      this.ship.x = nx; this.ship.y = ny;
+      this.createPortalEffect(this.ship.x, this.ship.y, this.ship.angle + Math.PI, true);
+      this.createFloatingText(this.ship.x, this.ship.y - 30, 'PORTAL!', '#f0f');
+      this.shipInvincible = 30;
+    }
+    if (this.portalCooldown &gt; 0) this.portalCooldown--;
+
+    if (this.keys['KeyX'] && this.mineCount &gt; 0) {
+      this.keys['KeyX'] = false;
+      this.mineCount--;
+      this.mines.push(this.createMine(this.ship.x, this.ship.y));
+      this.createFloatingText(this.ship.x, this.ship.y - 30, 'MINE DEPLOYED', '#f80');
+    }
+    if (this.keys['KeyC']) { this.keys['KeyC'] = false; this.spreadShotTimer = CONFIG.POWER_SPREAD; this.createFloatingText(this.ship.x, this.ship.y - 30, 'SPREAD SHOT!', '#0f0'); }
+    if (this.keys['KeyV'] && !this.shieldUsed && this.shieldTimer &lt;= 0) {
+      this.keys['KeyV'] = false;
+      this.shieldUsed = true;
+      this.shieldTimer = CONFIG.POWER_SHIELD;
+      this.createFloatingText(this.ship.x, this.ship.y - 30, 'SHIELD!', '#0ff');
+    }
+    if (this.keys['KeyB'] && !this.bombUsed && this.asteroids.length &gt; 0) {
+      this.keys['KeyB'] = false;
+      this.bombUsed = true;
+      for (let j = this.asteroids.length - 1; j &gt;= 0; j--) {
+        const a = this.asteroids[j];
+        const newAsteroids = [];
+        if (a.size === 'large') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'medium'), this.createAsteroid(a.x, a.y, 'medium')); this.score += 10; }
+        else if (a.size === 'medium') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'small'), this.createAsteroid(a.x, a.y, 'small')); this.score += 25; }
+        else { this.score += 50; }
+        this.asteroids.splice(j, 1);
+        this.asteroids.push(...newAsteroids);
+      }
+      this.screenShake = 10;
+      this.createFloatingText(this.canvas.width / 2, this.canvas.height / 2, 'BOMB HIT!', '#f00');
+      for (const a of this.asteroids) this.createExplosion(a.x, a.y, 5, '#f80', 2);
+    }
+    if (this.keys['KeyN']) { this.keys['KeyN'] = false; this.extendedRangeTimer = CONFIG.POWER_EXTENDED; this.createFloatingText(this.ship.x, this.ship.y - 30, 'EXTENDED RANGE!', '#ff0'); }
+    if (this.keys['KeyM']) {
+      this.keys['KeyM'] = false;
+      this.timeSlowFactor = 0.3;
+      setTimeout(() =&gt; { this.timeSlowFactor = 1; }, CONFIG.TIME_SLOW_DURATION_MS);
+      this.createFloatingText(this.ship.x, this.ship.y - 30, 'TIME SLOW!', '#f0f');
+    }
+
+    if (this.shipInvincible &gt; 0) this.shipInvincible--;
+    if (this.spreadShotTimer &gt; 0) this.spreadShotTimer--;
+    if (this.extendedRangeTimer &gt; 0) this.extendedRangeTimer--;
+    if (this.shieldTimer &gt; 0) this.shieldTimer--;
+    if (this.powerupFlashTimer &gt; 0) this.powerupFlashTimer--;
+  }
+
+  updateBullets() {
+    for (let i = this.bullets.length - 1; i &gt;= 0; i--) {
+      const b = this.bullets[i];
+      b.x += b.vx; b.y += b.vy; b.life--;
+      b.distTraveled += Math.sqrt(b.vx ** 2 + b.vy ** 2);
+      const maxDist = this.extendedRangeTimer &gt; 0 ? CONFIG.EXTENDED_RANGE_MAX_DIST : CONFIG.NORMAL_RANGE_MAX_DIST;
+      if (b.life &lt;= 0 || b.distTraveled &gt; maxDist || b.x &lt; -10 || b.x &gt; this.canvas.width + 10 || b.y &lt; -10 || b.y &gt; this.canvas.height + 10) {
+        this.bullets.splice(i, 1);
+        continue;
+      }
+      for (let j = this.asteroids.length - 1; j &gt;= 0; j--) {
+        const a = this.asteroids[j];
+        if (this.dist(b.x, b.y, a.x, a.y) &lt; a.radius + CONFIG.BULLET_COLLISION_BUFFER) {
+          this.bullets.splice(i, 1);
+          const newAsteroids = [];
+          if (a.size === 'large') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'medium'), this.createAsteroid(a.x, a.y, 'medium')); }
+          else if (a.size === 'medium') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'small'), this.createAsteroid(a.x, a.y, 'small')); }
+          this.score += a.points;
+          this.createFloatingText(a.x, a.y, `+${a.points}`, '#ff0');
+          this.createExplosion(a.x, a.y, a.size === 'large' ? 15 : 8, '#fff', 3);
+          this.screenShake = 5;
+          this.asteroids.splice(j, 1);
+          this.asteroids.push(...newAsteroids);
+          break;
+        }
+      }
+    }
+  }
+
+  updateAsteroids() {
+    const tf = this.timeSlowFactor;
+    for (const a of this.asteroids) {
+      a.x += a.vx * tf; a.y += a.vy * tf;
+      a.rotation += a.rotationSpeed * tf;
+      this.screenWrap(a);
+    }
+  }
+
+  updateMines() {
+    for (let i = this.mines.length - 1; i &gt;= 0; i--) {
+      const m = this.mines[i];
+      m.life--; m.pulsePhase += 0.05;
+      if (m.life &lt;= 0) {
+        this.mines.splice(i, 1);
+        continue;
+      }
+      if (m.arming && !m.exploding) {
+        m.armTimer--;
+        const playerDist = this.dist(m.x, m.y, this.ship.x, this.ship.y);
+        if (playerDist &gt; CONFIG.MINE_ARM_DISTANCE && m.armTimer &lt;= 0) { m.arming = false; m.armed = true; this.createFloatingText(m.x, m.y - 20, 'ARMED', '#f80'); }
+        if (playerDist &lt;= CONFIG.MINE_ARM_DISTANCE && m.armTimer &gt; 0) { m.armTimer = Math.min(m.armTimer + 2, CONFIG.MINE_ARM_TIME); }
+      }
+      if (m.exploding) {
+        m.explodeTimer--;
+        if (m.explodeTimer &lt;= 0) {
+          this.createExplosion(m.x, m.y, 20, '#ff0', 4);
+          this.createExplosion(m.x, m.y, 15, '#f80', 3);
+          this.screenShake = 8;
+          this.mines.splice(i, 1);
+        }
+        continue;
+      }
+      if (m.armed && !m.exploding) {
+        for (let j = this.asteroids.length - 1; j &gt;= 0; j--) {
+          const a = this.asteroids[j];
+          if (this.dist(m.x, m.y, a.x, a.y) &lt; a.radius + m.radius + CONFIG.MINE_COLLISION_BUFFER) {
+            m.exploding = true; m.explodeTimer = CONFIG.MINE_EXPLOSION_TIME;
+            const newAsteroids = [];
+            if (a.size === 'large') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'medium'), this.createAsteroid(a.x, a.y, 'medium')); }
+            else if (a.size === 'medium') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'small'), this.createAsteroid(a.x, a.y, 'small')); }
+            this.score += a.points;
+            this.createFloatingText(a.x, a.y, `+${a.points}`, '#f80');
+            this.asteroids.splice(j, 1); this.asteroids.push(...newAsteroids);
+            break;
+          }
+        }
+      }
+      if (m.armed && this.ship.alive && !this.isInvincible() && !m.exploding) {
+        if (this.dist(m.x, m.y, this.ship.x, this.ship.y) &lt; this.ship.radius + m.radius + CONFIG.MINE_COLLISION_BUFFER) {
+          m.exploding = true; m.explodeTimer = CONFIG.MINE_EXPLOSION_TIME;
+          this.ship.alive = false; this.ship.explodeTimer = CONFIG.SHIP_EXPLODE_FRAMES;
+          this.createExplosion(this.ship.x, this.ship.y, 40, '#f00', 5);
+          this.createExplosion(this.ship.x, this.ship.y, 20, '#ff0', 3);
+          this.screenShake = 15;
+        }
+      }
+    }
+  }
+
+  updatePowerups() {
+    for (let i = this.powerups.length - 1; i &gt;= 0; i--) {
+      const p = this.powerups[i];
+      p.life--; p.pulsePhase += 0.05;
+      p.x += p.vx * this.timeSlowFactor; p.y += p.vy * this.timeSlowFactor;
+      if (p.x &lt; -20) p.x = this.canvas.width + 20; if (p.x &gt; this.canvas.width + 20) p.x = -20;
+      if (p.y &lt; -20) p.y = this.canvas.height + 20; if (p.y &gt; this.canvas.height + 20) p.y = -20;
+      if (p.life &lt;= 0) { this.powerups.splice(i, 1); continue; }
+      if (this.ship.alive && this.dist(p.x, p.y, this.ship.x, this.ship.y) &lt; this.ship.radius + p.radius + CONFIG.POWERUP_COLLISION_BUFFER) {
+        this.powerups.splice(i, 1);
+        this.powerupFlashTimer = CONFIG.POWERUP_FLASH_LIFE;
+        switch (p.type) {
+          case 'spread': this.spreadShotTimer = CONFIG.POWER_SPREAD; this.createFloatingText(p.x, p.y, 'SPREAD SHOT!', '#0f0'); break;
+          case 'shield': this.shieldUsed = false; this.shieldTimer = CONFIG.POWER_SHIELD; this.createFloatingText(p.x, p.y, 'SHIELD!', '#0ff'); break;
+          case 'bomb': this.bombUsed = false; this.createFloatingText(p.x, p.y, 'BOMB READY!', '#f00'); break;
+          case 'extended': this.extendedRangeTimer = CONFIG.POWER_EXTENDED; this.createFloatingText(p.x, p.y, 'EXTENDED RANGE!', '#ff0'); break;
+          case 'time_slow': this.timeSlowFactor = 0.3; setTimeout(() =&gt; { this.timeSlowFactor = 1; }, CONFIG.TIME_SLOW_DURATION_MS); this.createFloatingText(p.x, p.y, 'TIME SLOW!', '#f0f'); break;
+          case 'mine': this.mineCount = Math.min(CONFIG.MINE_MAX, this.mineCount + 2); this.createFloatingText(p.x, p.y, '+2 MINES!', '#f80'); break;
+          case 'life': 
+            this.lives = Math.min(this.lives + 1, CONFIG.MAX_LIVES);
+            this.lastLifePowerupLevel = this.level; // Update cooldown tracker
+            this.createFloatingText(p.x, p.y, '+1 LIFE!', '#fff'); 
+            break;
+        }
+        this.createExplosion(p.x, p.y, 15, p.color, 3);
+      }
+    }
+  }
+
+  // ─── COLLISION DETECTION ───
+  checkCollisions() {
+    if (!this.ship.alive) return;
+    for (let j = this.asteroids.length - 1; j &gt;= 0; j--) {
+      const a = this.asteroids[j];
+      const collisionDist = a.radius + this.ship.radius * CONFIG.SHIP_COLLISION_RADIUS_MULT;
+      if (this.dist(this.ship.x, this.ship.y, a.x, a.y) &lt; collisionDist) {
+        if (this.shieldTimer &gt; 0) {
+          const dx = a.x - this.ship.x; const dy = a.y - this.ship.y;
+          const d = Math.sqrt(dx * dx + dy * dy) || 1;
+          const nx = dx / d; const ny = dy / d;
+          a.vx += nx * CONFIG.REPULSION_FORCE; a.vy += ny * CONFIG.REPULSION_FORCE;
+          const overlap = collisionDist - d;
+          if (overlap &gt; 0) { a.x += nx * overlap; a.y += ny * overlap; }
+          this.createExplosion(this.ship.x + nx * collisionDist, this.ship.y + ny * collisionDist, 8, '#0ff', 2);
+          this.screenShake = Math.max(this.screenShake, 2);
+        } else if (this.shipInvincible &gt; 0) {
+          continue;
+        } else {
+          this.ship.alive = false; this.ship.explodeTimer = CONFIG.SHIP_EXPLODE_FRAMES;
+          this.createExplosion(this.ship.x, this.ship.y, 40, '#f00', 5);
+          this.createExplosion(this.ship.x, this.ship.y, 20, '#ff0', 3);
+          this.screenShake = 15;
+          return;
+        }
+      }
+    }
+  }
+
+  isInvincible() { return this.shipInvincible &gt; 0 || this.shieldTimer &gt; 0; }
+
+  handlePowerupSpawning() {
+    this.powerupSpawnTimer++;
+    if (this.powerupSpawnTimer &gt;= CONFIG.POWERUP_SPAWN_INTERVAL) {
+      this.powerupSpawnTimer = 0;
+      this.spawnPowerup();
+    }
+  }
+
+  handleLevelTransition() {
+    if (this.asteroids.length === 0 && this.levelTransition &lt;= 0) this.nextLevel();
+  }
+
+  handleScreenShake() {
+    if (this.screenShake &gt; 0) this.screenShake *= CONFIG.SCREEN_SHAKE_DECAY;
+    if (this.screenShake &lt; CONFIG.SCREEN_SHAKE_THRESHOLD) this.screenShake = 0;
+  }
+
+  screenWrap(obj) {
+    if (obj.x &lt; -obj.radius) obj.x = this.canvas.width + obj.radius;
+    if (obj.x &gt; this.canvas.width + obj.radius) obj.x = -obj.radius;
+    if (obj.y &lt; -obj.radius) obj.y = this.canvas.height + obj.radius;
+    if (obj.y &gt; this.canvas.height + obj.radius) obj.y = -obj.radius;
+  }
+
+  dist(x1, y1, x2, y2) { return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2); }
+
+  updateParticles() {
+    for (let i = this.particles.length - 1; i &gt;= 0; i--) {
+      const p = this.particles[i];
+      p.x += p.vx; p.y += p.vy; p.vx *= 0.98; p.vy *= 0.98; p.life--;
+      if (p.life &lt;= 0) this.particles.splice(i, 1);
+    }
+  }
+
+  updateFloatingTexts() {
+    for (let i = this.floatingTexts.length - 1; i &gt;= 0; i--) {
+      const ft = this.floatingTexts[i]; ft.y -= 0.5; ft.life--;
+      if (ft.life &lt;= 0) this.floatingTexts.splice(i, 1);
+    }
+  }
+
+  gameOver() {
+    this.state = 'gameover';
+    if (this.score &gt; this.highScore) {
+      this.highScore = this.score;
+      localStorage.setItem('asteroidsHighScore', this.highScore);
+    }
+    document.getElementById('final-score').textContent = `SCORE: ${this.score}`;
+    document.getElementById('final-level').textContent = `REACHED LEVEL ${this.level}`;
+    document.getElementById('game-over-screen').style.display = 'block';
+  }
+
+  // ─── RENDER LOOP ───
+  draw() {
+    this.ctx.save();
+    if (this.screenShake &gt; 0) this.ctx.translate((Math.random() - 0.5) * this.screenShake * 2, (Math.random() - 0.5) * this.screenShake * 2);
+    this.ctx.fillStyle = '#000';
+    this.ctx.fillRect(-10, -10, this.canvas.width + 20, this.canvas.height + 20);
+    this.drawStars();
+
+    if (this.state === 'playing' || this.state === 'paused') {
+      this.drawAsteroids();
+      this.drawBullets();
+      this.drawMines();
+      this.drawPowerups();
+      this.drawShip();
+      this.drawParticles();
+      this.drawFloatingTexts();
+      this.drawHUD();
+      if (this.state === 'paused') this.drawPauseOverlay();
+    }
+    this.ctx.restore();
+  }
+
+  drawStars() {
+    if (!this.starsCache.length) {
+      for (let i = 0; i &lt; CONFIG.STAR_COUNT; i++) {
+        this.starsCache.push({ x: Math.random() * this.canvas.width, y: Math.random() * this.canvas.height, size: Math.random() * 1.5, brightness: 0.2 + Math.random() * 0.5 });
+      }
+    }
+    for (const s of this.starsCache) {
+      this.ctx.beginPath(); this.ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(255,255,255,${s.brightness})`; this.ctx.fill();
+    }
+  }
+
+  drawShip() {
+    if (!this.ship.alive) {
+      const progress = 1 - this.ship.explodeTimer / CONFIG.SHIP_EXPLODE_FRAMES;
+      const r = this.ship.radius * progress * 3;
+      this.ctx.beginPath(); this.ctx.arc(this.ship.x, this.ship.y, r, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(255,100,0,${1 - progress})`; this.ctx.lineWidth = 3 - progress * 2; this.ctx.stroke();
+      return;
+    }
+    if (this.respawnInvincible && this.shipInvincible &gt; 0 && Math.floor(this.shipInvincible / 5) % 2 === 0) return;
+
+    this.ctx.save();
+    this.ctx.translate(this.ship.x, this.ship.y);
+    this.ctx.rotate(this.ship.angle);
+    this.ctx.beginPath();
+    this.ctx.moveTo(this.ship.radius, 0);
+    this.ctx.lineTo(-this.ship.radius * 0.7, -this.ship.radius * 0.6);
+    this.ctx.lineTo(-this.ship.radius * 0.3, 0);
+    this.ctx.lineTo(-this.ship.radius * 0.7, this.ship.radius * 0.6);
+    this.ctx.closePath();
+    this.ctx.strokeStyle = '#fff'; this.ctx.lineWidth = 2; this.ctx.stroke();
+
+    if (this.shieldTimer &gt; 0) {
+      const shieldPulse = Math.sin(Date.now() * 0.008) * 0.15 + 0.35;
+      const shieldR = this.ship.radius + 10;
+      this.ctx.beginPath(); this.ctx.arc(0, 0, shieldR + 4, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(0,255,255,${shieldPulse * 0.15})`; this.ctx.fill();
+      this.ctx.beginPath(); this.ctx.arc(0, 0, shieldR, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(0,255,255,${shieldPulse + 0.15})`; this.ctx.lineWidth = 2.5; this.ctx.stroke();
+      this.ctx.beginPath(); this.ctx.arc(0, 0, shieldR - 3, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(0,255,255,${shieldPulse * 0.5})`; this.ctx.lineWidth = 1; this.ctx.stroke();
+      for (let i = 0; i &lt; 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + Date.now() * 0.001;
+        const x1 = Math.cos(a) * (shieldR - 5); const y1 = Math.sin(a) * (shieldR - 5);
+        const x2 = Math.cos(a + 0.5) * (shieldR + 5); const y2 = Math.sin(a + 0.5) * (shieldR + 5);
+        this.ctx.beginPath(); this.ctx.moveTo(x1, y1); this.ctx.lineTo(x2, y2);
+        this.ctx.strokeStyle = `rgba(0,255,255,${shieldPulse * 0.3})`; this.ctx.lineWidth = 1; this.ctx.stroke();
+      }
+    }
+    if (this.spreadShotTimer &gt; 0) {
+      this.ctx.beginPath(); this.ctx.arc(0, 0, this.ship.radius + 6, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(0,255,0,${0.2 + Math.sin(Date.now() * 0.02) * 0.15})`; this.ctx.lineWidth = 1; this.ctx.stroke();
+    }
+    if (this.extendedRangeTimer &gt; 0) {
+      this.ctx.beginPath(); this.ctx.arc(0, 0, this.ship.radius + 10, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(255,255,0,${0.15 + Math.sin(Date.now() * 0.02) * 0.1})`; this.ctx.lineWidth = 1;
+      this.ctx.setLineDash([4, 4]); this.ctx.stroke(); this.ctx.setLineDash([]);
+    }
+    if (this.ship.thrusting) {
+      const flicker = Math.sin(this.ship.thrustFlicker * 0.5) * 5;
+      this.ctx.beginPath(); this.ctx.moveTo(-this.ship.radius * 0.3, -this.ship.radius * 0.3);
+      this.ctx.lineTo(-this.ship.radius * 0.3 - this.ship.radius * 0.8 - flicker, 0);
+      this.ctx.lineTo(-this.ship.radius * 0.3, this.ship.radius * 0.3);
+      this.ctx.strokeStyle = '#f80'; this.ctx.lineWidth = 2; this.ctx.stroke();
+      this.ctx.beginPath(); this.ctx.moveTo(-this.ship.radius * 0.3, -this.ship.radius * 0.15);
+      this.ctx.lineTo(-this.ship.radius * 0.3 - this.ship.radius * 0.4 - flicker * 0.5, 0);
+      this.ctx.lineTo(-this.ship.radius * 0.3, this.ship.radius * 0.15);
+      this.ctx.strokeStyle = '#ff0'; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+    }
+    this.ctx.restore();
+  }
+
+  drawAsteroids() {
+    for (const a of this.asteroids) {
+      this.ctx.save(); this.ctx.translate(a.x, a.y); this.ctx.rotate(a.rotation);
+      this.ctx.beginPath(); this.ctx.moveTo(a.vertices[0].x, a.vertices[0].y);
+      for (let i = 1; i &lt; a.vertices.length; i++) this.ctx.lineTo(a.vertices[i].x, a.vertices[i].y);
+      this.ctx.closePath(); this.ctx.strokeStyle = '#aaa'; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+      this.ctx.restore();
+    }
+  }
+
+  drawBullets() {
+    for (const b of this.bullets) {
+      const alpha = b.life / CONFIG.BULLET_LIFE;
+      this.ctx.beginPath(); this.ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(255,255,255,${alpha})`; this.ctx.fill();
+      this.ctx.beginPath(); this.ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(200,200,255,${alpha * 0.3})`; this.ctx.fill();
+    }
+  }
+
+  drawMines() {
+    for (const m of this.mines) {
+      const pulse = Math.sin(m.pulsePhase) * 0.3 + 0.7;
+      if (m.exploding) {
+        const progress = 1 - m.explodeTimer / CONFIG.MINE_EXPLOSION_TIME;
+        const r = CONFIG.MINE_EXPLOSION_RADIUS * progress;
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, r, 0, Math.PI * 2);
+        this.ctx.strokeStyle = `rgba(255,200,0,${1 - progress})`; this.ctx.lineWidth = 3 - progress * 2; this.ctx.stroke();
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, r * 0.6, 0, Math.PI * 2);
+        this.ctx.fillStyle = `rgba(255,100,0,${(1 - progress) * 0.3})`; this.ctx.fill();
+        continue;
+      }
+      if (m.arming) {
+        const blinkOn = Math.sin(m.pulsePhase / CONFIG.MINE_BLINK_RATE) &gt; 0;
+        const alpha = blinkOn ? 0.8 : 0.15;
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, m.radius + 4, 0, Math.PI * 2);
+        this.ctx.fillStyle = `rgba(255,136,0,${alpha * 0.2})`; this.ctx.fill();
+        this.ctx.strokeStyle = `rgba(255,136,0,${alpha})`; this.ctx.lineWidth = 2; this.ctx.stroke();
+        const s = m.radius * 0.5;
+        this.ctx.beginPath(); this.ctx.moveTo(m.x - s, m.y); this.ctx.lineTo(m.x + s, m.y);
+        this.ctx.moveTo(m.x, m.y - s); this.ctx.lineTo(m.x, m.y + s);
+        this.ctx.strokeStyle = `rgba(255,200,0,${alpha})`; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+        const progress = 1 - m.armTimer / CONFIG.MINE_ARM_TIME;
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, m.radius + 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+        this.ctx.strokeStyle = `rgba(255,200,0,${alpha * 0.6})`; this.ctx.lineWidth = 2; this.ctx.stroke();
+        if (progress &gt; 0.3) {
+          this.ctx.font = '9px Courier New'; this.ctx.fillStyle = `rgba(255,200,0,${alpha * 0.8})`;
+          this.ctx.textAlign = 'center'; this.ctx.fillText('ARMIN', m.x, m.y - m.radius - 14);
+        }
+      } else if (m.armed) {
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2);
+        this.ctx.fillStyle = `rgba(255,136,0,${pulse * 0.3})`; this.ctx.fill();
+        this.ctx.strokeStyle = `rgba(255,136,0,${pulse})`; this.ctx.lineWidth = 2; this.ctx.stroke();
+        const s = m.radius * 0.5;
+        this.ctx.beginPath(); this.ctx.moveTo(m.x - s, m.y); this.ctx.lineTo(m.x + s, m.y);
+        this.ctx.moveTo(m.x, m.y - s); this.ctx.lineTo(m.x, m.y + s);
+        this.ctx.strokeStyle = `rgba(255,200,0,${pulse})`; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, m.radius + 4, 0, Math.PI * 2);
+        this.ctx.strokeStyle = `rgba(255,136,0,${pulse * 0.2})`; this.ctx.lineWidth = 1; this.ctx.stroke();
+        this.ctx.font = '9px Courier New'; this.ctx.fillStyle = `rgba(255,200,0,${pulse * 0.7})`;
+        this.ctx.textAlign = 'center'; this.ctx.fillText('ARMED', m.x, m.y - m.radius - 14);
+      }
+    }
+  }
+
+  drawPowerups() {
+    for (const p of this.powerups) {
+      const pulse = Math.sin(p.pulsePhase) * 0.3 + 0.7;
+      const alpha = p.life &lt; 180 ? (Math.sin(p.life * 0.15) * 0.5 + 0.5) : 1;
+      this.ctx.save(); this.ctx.translate(p.x, p.y);
+      const hex = p.color;
+      const r = parseInt(hex.slice(1, 3), 16); const g = parseInt(hex.slice(3, 5), 16); const b = parseInt(hex.slice(5, 7), 16);
+      this.ctx.beginPath(); this.ctx.arc(0, 0, p.radius + 8, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(${r},${g},${b},${pulse * 0.1})`; this.ctx.fill();
+      const rotAngle = Date.now() * 0.003;
+      this.ctx.beginPath(); this.ctx.arc(0, 0, p.radius + 4, rotAngle, rotAngle + Math.PI * 1.5);
+      this.ctx.strokeStyle = `rgba(${r},${g},${b},${pulse * alpha * 0.5})`; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+      this.ctx.beginPath(); this.ctx.arc(0, 0, p.radius, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(${r},${g},${b},${pulse * alpha})`; this.ctx.lineWidth = 2; this.ctx.stroke();
+      this.ctx.font = 'bold 14px Courier New'; this.ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle'; this.ctx.fillText(p.label, 0, 0);
+      this.ctx.restore();
+    }
+  }
+
+  drawParticles() {
+    for (const p of this.particles) {
+      const alpha = p.life / p.maxLife;
+      this.ctx.globalAlpha = alpha;
+      this.ctx.beginPath(); this.ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+      this.ctx.fillStyle = p.color; this.ctx.fill();
+      this.ctx.globalAlpha = 1;
+    }
+  }
+
+  drawFloatingTexts() {
+    for (const ft of this.floatingTexts) {
+      const alpha = ft.life / ft.maxLife;
+      this.ctx.globalAlpha = alpha;
+      this.ctx.font = 'bold 20px Courier New'; this.ctx.fillStyle = ft.color;
+      this.ctx.textAlign = 'center'; this.ctx.fillText(ft.text, ft.x, ft.y);
+      this.ctx.globalAlpha = 1;
+    }
+  }
+
+  drawHUD() {
+    this.drawActivePowerups();
+
+    this.ctx.font = 'bold 24px Courier New'; this.ctx.fillStyle = '#fff'; this.ctx.textAlign = 'left';
+    this.ctx.fillText(`SCORE: ${this.score}`, 20, 35);
+    this.ctx.font = '16px Courier New'; this.ctx.fillStyle = '#888';
+    this.ctx.fillText(`HI: ${this.highScore}`, 20, 58);
+    this.ctx.font = 'bold 20px Courier New'; this.ctx.fillStyle = '#0ff'; this.ctx.textAlign = 'center';
+    this.ctx.fillText(`LEVEL ${this.level}`, this.canvas.width / 2, 35);
+    
+    // Draw lives in wrapped rows
+    const livesPerRow = 3;
+    const maxLives = CONFIG.MAX_LIVES;
+    const livesToDraw = Math.min(this.lives, maxLives);
+    const rows = Math.ceil(livesToDraw / livesPerRow);
+    for (let r = 0; r &lt; rows; r++) {
+      for (let i = 0; i &lt; livesPerRow; i++) {
+        const idx = r * livesPerRow + i;
+        if (idx &gt;= livesToDraw) break;
+        const lx = this.canvas.width - 80 + i * 30;
+        const ly = 30 + r * 35; // Vertical spacing for rows
+        this.ctx.save();
+        this.ctx.translate(lx, ly);
+        this.ctx.rotate(-Math.PI / 2);
+        this.ctx.beginPath();
+        this.ctx.moveTo(CONFIG.SHIP_SIZE * 0.5, 0);
+        this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.35, -CONFIG.SHIP_SIZE * 0.3);
+        this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.15, 0);
+        this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.35, CONFIG.SHIP_SIZE * 0.3);
+        this.ctx.closePath();
+        this.ctx.strokeStyle = '#fff';
+        this.ctx.lineWidth = 1.5;
+        this.ctx.stroke();
+        this.ctx.restore();
+      }
+    }
+    
+    this.ctx.textAlign = 'right'; this.ctx.font = '14px Courier New'; this.ctx.fillStyle = '#666';
+    this.ctx.fillText(`ASTEROIDS: ${this.asteroids.length}`, this.canvas.width - 20, this.canvas.height - 15);
+
+    let timerY = CONFIG.HUD_TOP_MARGIN; this.ctx.textAlign = 'left'; this.ctx.font = '14px Courier New';
+    if (this.spreadShotTimer &gt; 0) { this.ctx.fillStyle = '#0f0'; this.ctx.fillText(`SPREAD: ${Math.ceil(this.spreadShotTimer / 60)}s`, 20, timerY); timerY += CONFIG.HUD_LINE_HEIGHT; }
+    if (this.extendedRangeTimer &gt; 0) { this.ctx.fillStyle = '#ff0'; this.ctx.fillText(`RANGE: ${Math.ceil(this.extendedRangeTimer / 60)}s`, 20, timerY); timerY += CONFIG.HUD_LINE_HEIGHT; }
+    if (this.shieldTimer &gt; 0) { this.ctx.fillStyle = '#0ff'; this.ctx.fillText(`SHIELD: ${Math.ceil(this.shieldTimer / 60)}s`, 20, timerY); timerY += CONFIG.HUD_LINE_HEIGHT; }
+    if (this.timeSlowFactor &lt; 1) { this.ctx.fillStyle = '#f0f'; this.ctx.fillText(`SLOW TIME!`, 20, timerY); timerY += CONFIG.HUD_LINE_HEIGHT; }
+
+    this.ctx.fillStyle = '#888'; this.ctx.font = '13px Courier New'; timerY = CONFIG.HUD_TOP_MARGIN;
+    const portalReady = this.portalCooldown &lt;= 0;
+    this.ctx.fillStyle = portalReady ? '#0ff' : '#f00';
+    this.ctx.fillText(`PORTAL: ${portalReady ? 'READY' : `${Math.ceil(this.portalCooldown / 60)}s`}`, 20, timerY);
+    timerY += 16;
+    this.ctx.fillStyle = this.mineCount &gt; 0 ? '#f80' : '#888';
+    this.ctx.fillText(`MINES: ${this.mineCount}/${CONFIG.MINE_MAX} (${this.mines.length} active)`, 20, timerY);
+    timerY += 16;
+    this.ctx.fillStyle = !this.bombUsed ? '#f00' : '#888';
+    this.ctx.fillText(`BOMB: ${this.bombUsed ? 'USED' : 'READY'}`, 20, timerY);
+    timerY += 16;
+    this.ctx.fillStyle = !this.shieldUsed ? '#0ff' : '#888';
+    this.ctx.fillText(`SHIELD: ${this.shieldUsed ? 'USED' : 'READY'}`, 20, timerY);
+
+    if (this.levelTransition &gt; 0) {
+      this.levelTransition--;
+      const alpha = Math.min(1, this.levelTransition / 30);
+      this.ctx.globalAlpha = alpha;
+      this.ctx.font = 'bold 48px Courier New'; this.ctx.fillStyle = '#0ff'; this.ctx.textAlign = 'center';
+      this.ctx.fillText(`LEVEL ${this.level}`, this.canvas.width / 2, this.canvas.height / 2 - 20);
+      this.ctx.font = '20px Courier New'; this.ctx.fillStyle = '#fff';
+      this.ctx.fillText('Get Ready!', this.canvas.width / 2, this.canvas.height / 2 + 20);
+      this.ctx.globalAlpha = 1;
+    }
+    if (this.powerupFlashTimer &gt; 0) {
+      this.ctx.fillStyle = `rgba(255,255,255,${this.powerupFlashTimer / 60 * 0.15})`;
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+
+    const stripY = this.canvas.height - CONFIG.HUD_BOTTOM_MARGIN;
+    this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    this.ctx.fillRect(0, stripY - 2, this.canvas.width, 32);
+    this.ctx.strokeStyle = 'rgba(100,100,100,0.3)'; this.ctx.lineWidth = 1;
+    this.ctx.beginPath(); this.ctx.moveTo(0, stripY - 2); this.ctx.lineTo(this.canvas.width, stripY - 2); this.ctx.stroke();
+    this.ctx.font = '13px Courier New'; this.ctx.textAlign = 'center';
+    const stripText = '←→ROTATE  ↑THRUST  SPACE:FIRE  Z:PORTAL(30s)  X:MINE(3)  C:SPREAD  V:SHIELD  B:BOMB  N:RANGE  M:TIMESLOW  P:PAUSE  R:RESTART';
+    this.ctx.fillStyle = 'rgba(220,220,220,0.95)';
+    this.ctx.fillText(stripText, this.canvas.width / 2, stripY + 16);
+  }
+
+  drawActivePowerups() {
+    let y = 55;
+    const centerX = this.canvas.width / 2;
+    this.ctx.font = 'bold 16px Courier New';
+    this.ctx.textAlign = 'center';
+
+    if (this.spreadShotTimer &gt; 0) {
+      const remaining = Math.ceil(this.spreadShotTimer / CONFIG.FPS);
+      this.ctx.fillStyle = '#0f0';
+      this.ctx.fillText(`SPREAD SHOT (${remaining}s)`, centerX, y);
+      y += CONFIG.HUD_LINE_HEIGHT;
+    }
+    if (this.extendedRangeTimer &gt; 0) {
+      const remaining = Math.ceil(this.extendedRangeTimer / CONFIG.FPS);
+      this.ctx.fillStyle = '#ff0';
+      this.ctx.fillText(`EXTENDED RANGE (${remaining}s)`, centerX, y);
+      y += CONFIG.HUD_LINE_HEIGHT;
+    }
+    if (this.shieldTimer &gt; 0) {
+      const remaining = Math.ceil(this.shieldTimer / CONFIG.FPS);
+      this.ctx.fillStyle = '#0ff';
+      this.ctx.fillText(`SHIELD (${remaining}s)`, centerX, y);
+      y += CONFIG.HUD_LINE_HEIGHT;
+    }
+    if (this.timeSlowFactor &lt; 1) {
+      this.ctx.fillStyle = '#f0f';
+      this.ctx.fillText(`TIME SLOW!`, centerX, y);
+      y += CONFIG.HUD_LINE_HEIGHT;
+    }
+  }
+
+  drawPauseOverlay() {
+    this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.font = 'bold 48px Courier New'; this.ctx.fillStyle = '#fff'; this.ctx.textAlign = 'center';
+    this.ctx.fillText('PAUSED', this.canvas.width / 2, this.canvas.height / 2);
+    this.ctx.font = '20px Courier New';
+    this.ctx.fillText('Press P to resume', this.canvas.width / 2, this.canvas.height / 2 + 40);
+  }
+
+  loop() {
+    this.update();
+    this.draw();
+    requestAnimationFrame(() =&gt; this.loop());
+  }
+}
+
+// Initialize game (global scope remains clean)
+const game = new Game();
+&lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+```
+
+### User
+more bugs to verify and fix:
+- press "R" key to restart doesn't seem to reset the +lives spawning, it restart should be same as resetting whole game by refreshing browser, treat it as such for all logic that resets on game init when browser refresh
+- bullet travel doesn't seem to actually hit asteroids further with the range power up. Verify if it's actually doing what it should: doubling range of bullet travel to hit asteroids up to twice as far from ship
+- bullet visibility, make it bolder QOL for player to more clearly see direction and range of bullet stream
+
+### Assistant
+The user wants me to fix three bugs/issues:
+1.  **Restart (R key) doesn't reset +life spawning cooldown**: The `lastLifePowerupLevel` variable is persisting across restarts. It should reset when the game restarts (via R key or browser refresh).
+2.  **Bullet range power-up not working**: The `extendedRangeTimer` logic might be flawed or the `distTraveled` calculation isn't triggering correctly. I need to verify the bullet travel distance logic and ensure it actually doubles the range.
+3.  **Bullet visibility**: Bullets are too faint. Need to make them bolder/brighter for better QOL.
+
+Let's address each:
+
+1.  **Restart Reset**: In `init()`, I need to add `this.lastLifePowerupLevel = 0;`. The current code has a comment saying it's intentionally not reset, but the user explicitly wants it to reset on restart (same as browser refresh). I'll remove that comment and add the reset.
+
+2.  **Bullet Range**: Let's trace the bullet logic:
+    ```javascript
+    // In updateBullets()
+    b.distTraveled += Math.sqrt(b.vx ** 2 + b.vy ** 2);
+    const maxDist = this.extendedRangeTimer &gt; 0 ? CONFIG.EXTENDED_RANGE_MAX_DIST : CONFIG.NORMAL_RANGE_MAX_DIST;
+    if (b.life &lt;= 0 || b.distTraveled &gt; maxDist || ...) { ... }
+    ```
+    `CONFIG.NORMAL_RANGE_MAX_DIST` is 300. `CONFIG.EXTENDED_RANGE_MAX_DIST` is 900.
+    Wait, the user said "doubling range", but the config says 300 vs 900 (tripling). The prompt says "extend range of bullets fired" and "bullets travel 3x farther". I'll keep the config as is (3x), but I need to make sure the distance calculation is correct. `Math.sqrt(b.vx ** 2 + b.vy ** 2)` gives the speed per frame. Since `BULLET_SPEED` is 8, `distTraveled` increases by 8 per frame. `BULLET_LIFE` is 55 frames. So normal max distance is `8 * 55 = 440`. But `CONFIG.NORMAL_RANGE_MAX_DIST` is 300. This means bullets are being culled at 300px, which is *less* than their natural life would allow. That's fine, it's a hard limit.
+    When extended is active, `maxDist` is 900. The condition `b.distTraveled &gt; maxDist` will trigger at 900px.
+    The issue might be that `b.distTraveled` is accumulating correctly, but maybe the check `b.distTraveled &gt; maxDist` is happening before collision checks, or the visual feedback isn't clear.
+    Actually, looking at the code:
+    ```javascript
+    if (b.life &lt;= 0 || b.distTraveled &gt; maxDist || b.x &lt; -10 || b.x &gt; this.canvas.width + 10 || b.y &lt; -10 || b.y &gt; this.canvas.height + 10) {
+        this.bullets.splice(i, 1);
+        continue;
+    }
+    ```
+    This looks correct. I'll verify the config values and maybe adjust them to exactly double/triple as intended, or just ensure the logic is sound. I'll stick to 3x as per previous prompt, but I'll make sure the distance cap is explicitly checked. I'll also add a visual indicator for extended range bullets if needed, but the main fix is ensuring the distance cap works. I'll change `EXTENDED_RANGE_MAX_DIST` to 600 (double) to match the user's "doubling range" comment, or keep 900 (triple) but clarify. The user said "doubling range of bullet travel to hit asteroids up to twice as far from ship". I'll change `EXTENDED_RANGE_MAX_DIST` to 600 to strictly match "double", or I'll just keep the logic robust. I'll adjust the config to `NORMAL: 300`, `EXTENDED: 600` to match the prompt's "double".
+
+3.  **Bullet Visibility**: Currently:
+    ```javascript
+    this.ctx.beginPath(); this.ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+    this.ctx.fillStyle = `rgba(255,255,255,${alpha})`; this.ctx.fill();
+    this.ctx.beginPath(); this.ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+    this.ctx.fillStyle = `rgba(200,200,255,${alpha * 0.3})`; this.ctx.fill();
+    ```
+    `b.radius` is 2. Alpha fades over time. It's quite faint. I'll make them solid white with a slight glow, and maybe increase the radius slightly or add a streak/trail effect. A simple fix is to draw a thicker line or a brighter core. I'll change to a solid white core `#fff` with a radius of 3, and a slightly larger semi-transparent glow. I'll also stop fading the core as quickly, or keep the fade but make the base brighter.
+
+Let's implement these fixes carefully.
+
+Changes:
+1. `init()`: Add `this.lastLifePowerupLevel = 0;`
+2. `CONFIG`: Change `EXTENDED_RANGE_MAX_DIST` to 600 (double of 300) to match prompt exactly.
+3. `drawBullets()`: Improve visibility. Draw a solid white core (radius 3) and a larger glow (radius 6) with higher alpha. Maybe add a small trail line in the direction of travel to indicate direction.
+
+Let's draft the bullet drawing update:
+```javascript
+  drawBullets() {
+    for (const b of this.bullets) {
+      const alpha = Math.min(1, b.life / CONFIG.BULLET_LIFE * 1.5); // Brighter base
+      // Core
+      this.ctx.beginPath(); this.ctx.arc(b.x, b.y, 3, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(255,255,255,${alpha})`; this.ctx.fill();
+      // Glow
+      this.ctx.beginPath(); this.ctx.arc(b.x, b.y, 6, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(200,220,255,${alpha * 0.4})`; this.ctx.fill();
+      // Direction indicator (small line opposite to velocity)
+      const dx = b.vx; const dy = b.vy;
+      const len = Math.sqrt(dx*dx + dy*dy);
+      if (len &gt; 0) {
+        this.ctx.beginPath();
+        this.ctx.moveTo(b.x, b.y);
+        this.ctx.lineTo(b.x - (dx/len) * 4, b.y - (dy/len) * 4);
+        this.ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.6})`;
+        this.ctx.lineWidth = 1.5;
+        this.ctx.stroke();
+      }
+    }
+  }
+```
+This will make bullets much more visible and show direction.
+
+Check `init()` reset:
+```javascript
+    this.lastLifePowerupLevel = 0; // Reset on restart
+```
+
+Check bullet distance logic:
+```javascript
+    const maxDist = this.extendedRangeTimer &gt; 0 ? CONFIG.EXTENDED_RANGE_MAX_DIST : CONFIG.NORMAL_RANGE_MAX_DIST;
+    if (b.life &lt;= 0 || b.distTraveled &gt; maxDist || ...)
+```
+This is correct. I'll adjust `CONFIG.EXTENDED_RANGE_MAX_DIST` to 600 to strictly double the 300 limit, as requested.
+
+One more thing: `this.lastLifePowerupLevel` is used in `spawnPowerup()`:
+```javascript
+    const levelsSinceLast = Math.max(0, this.level - this.lastLifePowerupLevel);
+    if (type === 'life' && levelsSinceLast &lt; CONFIG.LIFE_POWERUP_COOLDOWN_LEVELS) { ... }
+```
+This works correctly now that it resets on init.
+
+I will output the full HTML with these fixes.
+All changes are minimal and targeted.
+Proceeding. 
+Output matches response.
+
+&lt;/think&gt;
+
+
+```html
+&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+&lt;head&gt;
+&lt;meta charset="UTF-8"&gt;
+&lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;
+&lt;title&gt;Asteroids - Arcade Classic&lt;/title&gt;
+&lt;style&gt;
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+background: #000;
+display: flex;
+justify-content: center;
+align-items: center;
+height: 100vh;
+width: 100vw;
+overflow: hidden;
+font-family: 'Courier New', monospace;
+}
+canvas { display: block; }
+#ui-overlay {
+position: absolute;
+top: 0; left: 0;
+width: 100%; height: 100%;
+display: flex;
+justify-content: center;
+align-items: center;
+pointer-events: none;
+}
+#start-screen, #game-over-screen {
+text-align: center;
+color: #fff;
+pointer-events: auto;
+}
+#start-screen h1 {
+font-size: clamp(36px, 6vw, 64px);
+color: #fff;
+text-shadow: 0 0 20px #fff, 0 0 40px #888;
+margin-bottom: 20px;
+letter-spacing: 8px;
+}
+#start-screen p, #game-over-screen p {
+font-size: clamp(14px, 1.8vw, 18px);
+color: #aaa;
+margin: 10px 0;
+}
+.blink {
+animation: blink 1s infinite;
+font-size: clamp(18px, 2.2vw, 24px);
+color: #fff;
+margin-top: 30px;
+}
+@keyframes blink {
+0%, 100% { opacity: 1; }
+50% { opacity: 0; }
+}
+#game-over-screen h1 {
+font-size: clamp(36px, 5vw, 48px);
+color: #f00;
+text-shadow: 0 0 20px #f00;
+margin-bottom: 20px;
+}
+#game-over-screen .score {
+font-size: clamp(24px, 3vw, 32px);
+color: #fff;
+margin: 20px 0;
+}
+.controls-info {
+font-size: clamp(11px, 1.3vw, 14px);
+color: #666;
+margin-top: 30px;
+line-height: 2;
+text-align: left;
+display: inline-block;
+}
+.controls-info .key {
+color: #0ff;
+font-weight: bold;
+}
+.controls-info .section {
+color: #888;
+margin-top: 8px;
+display: block;
+}
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+
+&lt;canvas id="gameCanvas"&gt;&lt;/canvas&gt;
+
+&lt;div id="ui-overlay"&gt;
+&lt;div id="start-screen"&gt;
+&lt;h1&gt;ASTEROIDS&lt;/h1&gt;
+&lt;p&gt;Destroy all asteroids to advance&lt;/p&gt;
+&lt;p class="blink"&gt;PRESS SPACE TO START&lt;/p&gt;
+&lt;div class="controls-info"&gt;
+&lt;span class="section"&gt;— NAVIGATION —&lt;/span&gt;
+&lt;span class="key"&gt;← →&lt;/span&gt; ROTATE &nbsp;|&nbsp; &lt;span class="key"&gt;↑&lt;/span&gt; THRUST&lt;br&gt;
+&lt;span class="key"&gt;SPACE&lt;/span&gt; FIRE&lt;br&gt;
+&lt;span class="key"&gt;Z&lt;/span&gt; PORTAL (30s cooldown, jumps half screen forward)&lt;br&gt;
+&lt;span class="section"&gt;— POWERS —&lt;/span&gt;
+&lt;span class="key"&gt;X&lt;/span&gt; DEPLOY MINE (carry 3, arms after you leave)&lt;br&gt;
+&lt;span class="key"&gt;C&lt;/span&gt; SPREAD SHOT (30s)&lt;br&gt;
+&lt;span class="key"&gt;V&lt;/span&gt; SHIELD (20s, once per life)&lt;br&gt;
+&lt;span class="key"&gt;B&lt;/span&gt; BOMB (hits all asteroids)&lt;br&gt;
+&lt;span class="key"&gt;N&lt;/span&gt; EXTENDED RANGE (30s)&lt;br&gt;
+&lt;span class="key"&gt;M&lt;/span&gt; TIME SLOW (16s)&lt;br&gt;
+&lt;span class="section"&gt;— OTHER —&lt;/span&gt;
+&lt;span class="key"&gt;P&lt;/span&gt; PAUSE &nbsp;|&nbsp; &lt;span class="key"&gt;R&lt;/span&gt; RESTART
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div id="game-over-screen" style="display:none;"&gt;
+&lt;h1&gt;GAME OVER&lt;/h1&gt;
+&lt;div class="score" id="final-score"&gt;&lt;/div&gt;
+&lt;p id="final-level"&gt;&lt;/p&gt;
+&lt;p class="blink"&gt;PRESS SPACE TO RESTART&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+/**
+ * CENTRALIZED CONFIGURATION
+ * All magic numbers, durations, and tunables are extracted here.
+ */
+const CONFIG = {
+  // Core Physics
+  FPS: 60,
+  SHIP_SIZE: 20,
+  SHIP_THRUST: 0.075,
+  SHIP_TURN_SPEED: 0.07,
+  BULLET_SPEED: 8,
+  BULLET_LIFE: 55,
+  BASE_ASTEROID_VEL: 0.75,
+  ASTEROID_SPEED_SCALE: 0.1,
+  ASTEROID_RANDOM_VEL: 1.3,
+  FRICTION: 0.995,
+  MAX_SHIP_SPEED: 7,
+
+  // Timers & Cooldowns (in frames)
+  INVINCIBLE_TIME: 180,
+  PORTAL_COOLDOWN: 1800, // 30s
+  FIRE_RATE: 40,
+  SHIP_EXPLODE_FRAMES: 90,
+  MINE_ARM_TIME: 90, // 1.5s
+  MINE_ARM_DISTANCE: 80,
+  MINE_BLINK_RATE: 0.15,
+  MINE_LIFETIME: 7200, // 120s
+  MINE_EXPLOSION_TIME: 60,
+  MINE_EXPLOSION_RADIUS: 70,
+  POWERUP_SPAWN_INTERVAL: 1200, // 20s
+  POWERUP_LIFETIME: 1200, // 20s
+
+  // Power-up Durations (in frames)
+  POWER_SPREAD: 1800,    // 30s
+  POWER_SHIELD: 1200,    // 20s
+  POWER_EXTENDED: 1800,  // 30s
+  POWER_TIME_SLOW: 960,  // 16s
+  TIME_SLOW_DURATION_MS: 16000,
+
+  // Collision & Spacing Buffers
+  BULLET_COLLISION_BUFFER: 5,
+  SHIP_COLLISION_RADIUS_MULT: 0.6,
+  MINE_COLLISION_BUFFER: 10,
+  POWERUP_COLLISION_BUFFER: 10,
+  SAFE_SPAWN_DISTANCE: 180,
+  POWERUP_SAFE_SPAWN_DISTANCE: 150,
+  PORTAL_JUMP_FACTOR: 0.4,
+  REPULSION_FORCE: 2.5,
+
+  // Level Scaling
+  LEVEL_ASTEROID_BASE: 3,
+  LEVEL_ASTEROID_SCALE: 1.5,
+
+  // Range & Distances
+  NORMAL_RANGE_MAX_DIST: 300,
+  EXTENDED_RANGE_MAX_DIST: 600, // Doubled from 300 to strictly double range
+
+  // Visual & FX
+  SCREEN_SHAKE_DECAY: 0.8,
+  SCREEN_SHAKE_THRESHOLD: 0.5,
+  STAR_COUNT: 200,
+  PARTICLE_LIFE_MIN: 30,
+  PARTICLE_LIFE_MAX: 60,
+  FLOATING_TEXT_LIFE: 60,
+  POWERUP_FLASH_LIFE: 30,
+
+  // Mines
+  MINE_MAX: 3,
+
+  // HUD
+  HUD_LINE_HEIGHT: 18,
+  HUD_TOP_MARGIN: 70,
+  HUD_BOTTOM_MARGIN: 35,
+
+  // Life Power-up
+  LIFE_POWERUP_COOLDOWN_LEVELS: 2,
+  MAX_LIVES: 9
+};
+
+/**
+ * GAME CLASS
+ * Encapsulates all state, logic, and rendering.
+ */
+class Game {
+  constructor() {
+    this.canvas = document.getElementById('gameCanvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.resize();
+    window.addEventListener('resize', () =&gt; this.resize());
+
+    this.keys = {};
+    this.setupInput();
+
+    // Game State
+    this.state = 'start';
+    this.level = 0;
+    this.score = 0;
+    this.lives = 3;
+    this.highScore = parseInt(localStorage.getItem('asteroidsHighScore')) || 0;
+    this.lastLifePowerupLevel = 0;
+
+    // Entities
+    this.ship = null;
+    this.asteroids = [];
+    this.bullets = [];
+    this.particles = [];
+    this.floatingTexts = [];
+    this.mines = [];
+    this.powerups = [];
+
+    // Timers & Flags
+    this.shootCooldown = 0;
+    this.shipInvincible = 0;
+    this.respawnInvincible = false;
+    this.levelTransition = 0;
+    this.screenShake = 0;
+    this.portalCooldown = 0;
+    this.mineCount = 0;
+    this.powerupSpawnTimer = 0;
+    this.timeSlowFactor = 1;
+    this.spreadShotTimer = 0;
+    this.extendedRangeTimer = 0;
+    this.shieldTimer = 0;
+    this.bombUsed = false;
+    this.shieldUsed = false;
+    this.powerupFlashTimer = 0;
+
+    // Star cache (module-level for performance)
+    this.starsCache = [];
+
+    this.init();
+    this.loop();
+  }
+
+  resize() {
+    this.canvas.width = window.innerWidth;
+    this.canvas.height = window.innerHeight;
+  }
+
+  setupInput() {
+    document.addEventListener('keydown', (e) =&gt; {
+      this.keys[e.code] = true;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (this.state === 'start') {
+          this.hideStartScreen();
+          this.state = 'playing';
+          this.init();
+        } else if (this.state === 'gameover') {
+          this.hideGameOverScreen();
+          this.state = 'playing';
+          this.init();
+        }
+      }
+      if (e.code === 'KeyP' && this.state === 'playing') this.state = 'paused';
+      else if (e.code === 'KeyP' && this.state === 'paused') this.state = 'playing';
+      if (e.code === 'KeyR') {
+        this.state = 'playing';
+        this.hideGameOverScreen();
+        this.init(); // Resets everything exactly like a browser refresh
+      }
+    });
+    document.addEventListener('keyup', (e) =&gt; { this.keys[e.code] = false; });
+  }
+
+  hideStartScreen() { document.getElementById('start-screen').style.display = 'none'; }
+  hideGameOverScreen() { document.getElementById('game-over-screen').style.display = 'none'; }
+
+  init() {
+    this.ship = this.createShip();
+    this.asteroids = [];
+    this.bullets = [];
+    this.particles = [];
+    this.floatingTexts = [];
+    this.mines = [];
+    this.powerups = [];
+    this.score = 0;
+    this.lives = 3;
+    this.level = 0;
+    this.shipInvincible = 0;
+    this.respawnInvincible = false;
+    this.levelTransition = 0;
+    this.screenShake = 0;
+    this.portalCooldown = 0;
+    this.mineCount = 1;
+    this.lastLifePowerupLevel = 0; // Resets on restart/refresh
+    this.powerupSpawnTimer = 0;
+    this.timeSlowFactor = 1;
+    this.spreadShotTimer = 0;
+    this.extendedRangeTimer = 0;
+    this.shieldTimer = 0;
+    this.bombUsed = false;
+    this.shieldUsed = false;
+    this.powerupFlashTimer = 0;
+    this.nextLevel();
+  }
+
+  nextLevel() {
+    this.level++;
+    this.levelTransition = CONFIG.FPS * 2;
+    const count = CONFIG.LEVEL_ASTEROID_BASE + Math.floor(this.level * CONFIG.LEVEL_ASTEROID_SCALE);
+    this.spawnAsteroids(count);
+    this.createFloatingText(this.canvas.width / 2, this.canvas.height / 2, `LEVEL ${this.level}`, '#0ff');
+  }
+
+  spawnAsteroids(count) {
+    for (let i = 0; i &lt; count; i++) {
+      let x, y;
+      do {
+        x = Math.random() * this.canvas.width;
+        y = Math.random() * this.canvas.height;
+      } while (this.dist(x, y, this.ship.x, this.ship.y) &lt; CONFIG.SAFE_SPAWN_DISTANCE);
+      this.asteroids.push(this.createAsteroid(x, y, 'large'));
+    }
+  }
+
+  spawnPowerup() {
+    const types = ['spread', 'shield', 'bomb', 'extended', 'time_slow', 'mine', 'life'];
+    let type = types[Math.floor(Math.random() * types.length)];
+    
+    const levelsSinceLast = Math.max(0, this.level - this.lastLifePowerupLevel);
+    if (type === 'life' && levelsSinceLast &lt; CONFIG.LIFE_POWERUP_COOLDOWN_LEVELS) {
+      const otherTypes = types.filter(t =&gt; t !== 'life');
+      type = otherTypes[Math.floor(Math.random() * otherTypes.length)];
+    }
+    
+    let x, y;
+    do {
+      x = 80 + Math.random() * (this.canvas.width - 160);
+      y = 80 + Math.random() * (this.canvas.height - 160);
+    } while (this.dist(x, y, this.ship.x, this.ship.y) &lt; CONFIG.POWERUP_SAFE_SPAWN_DISTANCE);
+    this.powerups.push(this.createPowerup(x, y, type));
+  }
+
+  // ─── ENTITY FACTORIES ───
+  createShip() {
+    return { x: this.canvas.width / 2, y: this.canvas.height / 2, vx: 0, vy: 0, angle: -Math.PI / 2, radius: CONFIG.SHIP_SIZE, thrusting: false, thrustFlicker: 0, alive: true, explodeTimer: 0 };
+  }
+
+  createAsteroid(x, y, size) {
+    const sizes = ['large', 'medium', 'small'];
+    const sizeIdx = sizes.indexOf(size);
+    const radii = [40, 22, 12];
+    const r = radii[sizeIdx];
+    const area = this.canvas.width * this.canvas.height;
+    const refArea = 1600 * 900;
+    const speedFactor = area &gt; refArea * 1.5 ? Math.max(0.4, 1.0 - (Math.log(area / refArea) * 0.3)) : 1.0;
+    const levelMult = 1 + (this.level * CONFIG.ASTEROID_SPEED_SCALE);
+    const speed = (CONFIG.BASE_ASTEROID_VEL + Math.random() * CONFIG.ASTEROID_RANDOM_VEL) * speedFactor * levelMult / (1 + sizeIdx * 0.5);
+    const angle = Math.random() * Math.PI * 2;
+    const vertices = [];
+    const numVerts = 8 + Math.floor(Math.random() * 5);
+    for (let i = 0; i &lt; numVerts; i++) {
+      const a = (i / numVerts) * Math.PI * 2;
+      const variation = 0.7 + Math.random() * 0.6;
+      vertices.push({ x: Math.cos(a) * r * variation, y: Math.sin(a) * r * variation });
+    }
+    return { x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, radius: r, vertices, rotationSpeed: (Math.random() - 0.5) * 0.04, rotation: Math.random() * Math.PI * 2, size, points: size === 'large' ? 20 : size === 'medium' ? 50 : 100 };
+  }
+
+  createMine(x, y) {
+    return { x, y, vx: (Math.random() - 0.5) * 0.3, vy: (Math.random() - 0.5) * 0.3, radius: 10, life: CONFIG.MINE_LIFETIME, arming: true, armTimer: CONFIG.MINE_ARM_TIME, armed: false, exploding: false, explodeTimer: 0, pulsePhase: Math.random() * Math.PI * 2 };
+  }
+
+  createPowerup(x, y, type) {
+    const types = ['spread', 'shield', 'bomb', 'extended', 'time_slow', 'mine', 'life'];
+    const typeIdx = types.indexOf(type);
+    const colors = ['#0f0', '#0ff', '#f00', '#ff0', '#f0f', '#f80', '#fff'];
+    const labels = ['≡', '○', '●', '⌇', '∞', '◆', '♥'];
+    return { x, y, vx: (Math.random() - 0.5) * 0.5, vy: (Math.random() - 0.5) * 0.5, radius: 12, life: CONFIG.POWERUP_LIFETIME, type, color: colors[typeIdx], label: labels[typeIdx], pulsePhase: Math.random() * Math.PI * 2 };
+  }
+
+  createExplosion(x, y, count, color, speed) {
+    for (let i = 0; i &lt; count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const spd = Math.random() * speed;
+      this.particles.push({ x, y, vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd, life: CONFIG.PARTICLE_LIFE_MIN + Math.random() * (CONFIG.PARTICLE_LIFE_MAX - CONFIG.PARTICLE_LIFE_MIN), maxLife: CONFIG.PARTICLE_LIFE_MAX, color: color || '#fff', size: 1 + Math.random() * 2 });
+    }
+  }
+
+  createFloatingText(x, y, text, color) {
+    this.floatingTexts.push({ x, y, text, color: color || '#fff', life: CONFIG.FLOATING_TEXT_LIFE, maxLife: CONFIG.FLOATING_TEXT_LIFE });
+  }
+
+  createPortalEffect(x, y, angle, entering) {
+    const count = 20;
+    for (let i = 0; i &lt; count; i++) {
+      const spread = (Math.random() - 0.5) * 0.5;
+      const dist = Math.random() * 30;
+      this.particles.push({
+        x: x + Math.cos(angle + spread) * dist, y: y + Math.sin(angle + spread) * dist,
+        vx: Math.cos(angle + spread) * (entering ? 1 : -1) * (1 + Math.random() * 2),
+        vy: Math.sin(angle + spread) * (entering ? 1 : -1) * (1 + Math.random() * 2),
+        life: 30 + Math.random() * 20, maxLife: 50, color: entering ? '#0ff' : '#f0f', size: 2 + Math.random() * 3
+      });
+    }
+  }
+
+  // ─── UPDATE LOOP ───
+  update() {
+    if (this.state !== 'playing') return;
+    this.updateShip();
+    this.updateBullets();
+    this.updateAsteroids();
+    this.updateMines();
+    this.updatePowerups();
+    this.checkCollisions();
+    this.updateParticles();
+    this.updateFloatingTexts();
+    this.handlePowerupSpawning();
+    this.handleLevelTransition();
+    this.handleScreenShake();
+  }
+
+  updateShip() {
+    if (!this.ship.alive) {
+      this.ship.explodeTimer--;
+      if (this.ship.explodeTimer &lt;= 0) {
+        this.lives--;
+        if (this.lives &lt;= 0) {
+          this.gameOver();
+        } else {
+          this.ship = this.createShip();
+          this.shipInvincible = CONFIG.INVINCIBLE_TIME;
+          this.respawnInvincible = true;
+          this.shieldTimer = 0;
+          this.spreadShotTimer = 0;
+          this.extendedRangeTimer = 0;
+          this.timeSlowFactor = 1;
+          this.bombUsed = false;
+          this.shieldUsed = false;
+          this.mineCount = 1;
+          this.createFloatingText(this.canvas.width / 2, this.canvas.height / 2, 'READY', '#0f0');
+        }
+      }
+      return;
+    }
+
+    if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.ship.angle -= CONFIG.SHIP_TURN_SPEED;
+    if (this.keys['ArrowRight'] || this.keys['KeyD']) this.ship.angle += CONFIG.SHIP_TURN_SPEED;
+
+    this.ship.thrusting = this.keys['ArrowUp'] || this.keys['KeyW'];
+    if (this.ship.thrusting) {
+      this.ship.vx += Math.cos(this.ship.angle) * CONFIG.SHIP_THRUST;
+      this.ship.vy += Math.sin(this.ship.angle) * CONFIG.SHIP_THRUST;
+      this.ship.thrustFlicker++;
+      const backAngle = this.ship.angle + Math.PI;
+      this.particles.push({
+        x: this.ship.x + Math.cos(backAngle) * this.ship.radius * 0.8,
+        y: this.ship.y + Math.sin(backAngle) * this.ship.radius * 0.8,
+        vx: Math.cos(backAngle) * 2 + (Math.random() - 0.5),
+        vy: Math.sin(backAngle) * 2 + (Math.random() - 0.5),
+        life: 15 + Math.random() * 10, maxLife: 25,
+        color: Math.random() &lt; 0.5 ? '#f80' : '#ff0', size: 2 + Math.random() * 2
+      });
+    }
+
+    this.ship.vx *= CONFIG.FRICTION;
+    this.ship.vy *= CONFIG.FRICTION;
+    const speed = Math.sqrt(this.ship.vx ** 2 + this.ship.vy ** 2);
+    if (speed &gt; CONFIG.MAX_SHIP_SPEED) { this.ship.vx = (this.ship.vx / speed) * CONFIG.MAX_SHIP_SPEED; this.ship.vy = (this.ship.vy / speed) * CONFIG.MAX_SHIP_SPEED; }
+    this.ship.x += this.ship.vx;
+    this.ship.y += this.ship.vy;
+    this.screenWrap(this.ship);
+
+    if (this.shootCooldown &gt; 0) this.shootCooldown--;
+    if (this.keys['Space'] && this.shootCooldown &lt;= 0 && this.ship.alive) {
+      this.shootCooldown = CONFIG.FIRE_RATE;
+      const noseX = this.ship.x + Math.cos(this.ship.angle) * this.ship.radius;
+      const noseY = this.ship.y + Math.sin(this.ship.angle) * this.ship.radius;
+      this.bullets.push({ x: noseX, y: noseY, vx: Math.cos(this.ship.angle) * CONFIG.BULLET_SPEED + this.ship.vx * 0.3, vy: Math.sin(this.ship.angle) * CONFIG.BULLET_SPEED + this.ship.vy * 0.3, life: CONFIG.BULLET_LIFE, radius: 2, distTraveled: 0 });
+      if (this.spreadShotTimer &gt; 0) {
+        for (let a = -1; a &lt;= 1; a += 2) {
+          const a2 = this.ship.angle + a * 0.25;
+          this.bullets.push({ x: noseX, y: noseY, vx: Math.cos(a2) * CONFIG.BULLET_SPEED + this.ship.vx * 0.3, vy: Math.sin(a2) * CONFIG.BULLET_SPEED + this.ship.vy * 0.3, life: CONFIG.BULLET_LIFE, radius: 2, distTraveled: 0 });
+        }
+      }
+    }
+
+    if (this.keys['KeyZ'] && this.portalCooldown &lt;= 0 && this.ship.alive) {
+      this.portalCooldown = CONFIG.PORTAL_COOLDOWN;
+      const jumpDist = Math.min(this.canvas.width, this.canvas.height) * CONFIG.PORTAL_JUMP_FACTOR;
+      let nx = this.ship.x + Math.cos(this.ship.angle) * jumpDist;
+      let ny = this.ship.y + Math.sin(this.ship.angle) * jumpDist;
+      if (nx &lt; 0) nx += this.canvas.width; if (nx &gt; this.canvas.width) nx -= this.canvas.width;
+      if (ny &lt; 0) ny += this.canvas.height; if (ny &gt; this.canvas.height) ny -= this.canvas.height;
+      this.createPortalEffect(this.ship.x, this.ship.y, this.ship.angle, false);
+      this.ship.x = nx; this.ship.y = ny;
+      this.createPortalEffect(this.ship.x, this.ship.y, this.ship.angle + Math.PI, true);
+      this.createFloatingText(this.ship.x, this.ship.y - 30, 'PORTAL!', '#f0f');
+      this.shipInvincible = 30;
+    }
+    if (this.portalCooldown &gt; 0) this.portalCooldown--;
+
+    if (this.keys['KeyX'] && this.mineCount &gt; 0) {
+      this.keys['KeyX'] = false;
+      this.mineCount--;
+      this.mines.push(this.createMine(this.ship.x, this.ship.y));
+      this.createFloatingText(this.ship.x, this.ship.y - 30, 'MINE DEPLOYED', '#f80');
+    }
+    if (this.keys['KeyC']) { this.keys['KeyC'] = false; this.spreadShotTimer = CONFIG.POWER_SPREAD; this.createFloatingText(this.ship.x, this.ship.y - 30, 'SPREAD SHOT!', '#0f0'); }
+    if (this.keys['KeyV'] && !this.shieldUsed && this.shieldTimer &lt;= 0) {
+      this.keys['KeyV'] = false;
+      this.shieldUsed = true;
+      this.shieldTimer = CONFIG.POWER_SHIELD;
+      this.createFloatingText(this.ship.x, this.ship.y - 30, 'SHIELD!', '#0ff');
+    }
+    if (this.keys['KeyB'] && !this.bombUsed && this.asteroids.length &gt; 0) {
+      this.keys['KeyB'] = false;
+      this.bombUsed = true;
+      for (let j = this.asteroids.length - 1; j &gt;= 0; j--) {
+        const a = this.asteroids[j];
+        const newAsteroids = [];
+        if (a.size === 'large') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'medium'), this.createAsteroid(a.x, a.y, 'medium')); this.score += 10; }
+        else if (a.size === 'medium') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'small'), this.createAsteroid(a.x, a.y, 'small')); this.score += 25; }
+        else { this.score += 50; }
+        this.asteroids.splice(j, 1);
+        this.asteroids.push(...newAsteroids);
+      }
+      this.screenShake = 10;
+      this.createFloatingText(this.canvas.width / 2, this.canvas.height / 2, 'BOMB HIT!', '#f00');
+      for (const a of this.asteroids) this.createExplosion(a.x, a.y, 5, '#f80', 2);
+    }
+    if (this.keys['KeyN']) { this.keys['KeyN'] = false; this.extendedRangeTimer = CONFIG.POWER_EXTENDED; this.createFloatingText(this.ship.x, this.ship.y - 30, 'EXTENDED RANGE!', '#ff0'); }
+    if (this.keys['KeyM']) {
+      this.keys['KeyM'] = false;
+      this.timeSlowFactor = 0.3;
+      setTimeout(() =&gt; { this.timeSlowFactor = 1; }, CONFIG.TIME_SLOW_DURATION_MS);
+      this.createFloatingText(this.ship.x, this.ship.y - 30, 'TIME SLOW!', '#f0f');
+    }
+
+    if (this.shipInvincible &gt; 0) this.shipInvincible--;
+    if (this.spreadShotTimer &gt; 0) this.spreadShotTimer--;
+    if (this.extendedRangeTimer &gt; 0) this.extendedRangeTimer--;
+    if (this.shieldTimer &gt; 0) this.shieldTimer--;
+    if (this.powerupFlashTimer &gt; 0) this.powerupFlashTimer--;
+  }
+
+  updateBullets() {
+    for (let i = this.bullets.length - 1; i &gt;= 0; i--) {
+      const b = this.bullets[i];
+      b.x += b.vx; b.y += b.vy; b.life--;
+      b.distTraveled += Math.sqrt(b.vx ** 2 + b.vy ** 2);
+      const maxDist = this.extendedRangeTimer &gt; 0 ? CONFIG.EXTENDED_RANGE_MAX_DIST : CONFIG.NORMAL_RANGE_MAX_DIST;
+      if (b.life &lt;= 0 || b.distTraveled &gt; maxDist || b.x &lt; -10 || b.x &gt; this.canvas.width + 10 || b.y &lt; -10 || b.y &gt; this.canvas.height + 10) {
+        this.bullets.splice(i, 1);
+        continue;
+      }
+      for (let j = this.asteroids.length - 1; j &gt;= 0; j--) {
+        const a = this.asteroids[j];
+        if (this.dist(b.x, b.y, a.x, a.y) &lt; a.radius + CONFIG.BULLET_COLLISION_BUFFER) {
+          this.bullets.splice(i, 1);
+          const newAsteroids = [];
+          if (a.size === 'large') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'medium'), this.createAsteroid(a.x, a.y, 'medium')); }
+          else if (a.size === 'medium') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'small'), this.createAsteroid(a.x, a.y, 'small')); }
+          this.score += a.points;
+          this.createFloatingText(a.x, a.y, `+${a.points}`, '#ff0');
+          this.createExplosion(a.x, a.y, a.size === 'large' ? 15 : 8, '#fff', 3);
+          this.screenShake = 5;
+          this.asteroids.splice(j, 1);
+          this.asteroids.push(...newAsteroids);
+          break;
+        }
+      }
+    }
+  }
+
+  updateAsteroids() {
+    const tf = this.timeSlowFactor;
+    for (const a of this.asteroids) {
+      a.x += a.vx * tf; a.y += a.vy * tf;
+      a.rotation += a.rotationSpeed * tf;
+      this.screenWrap(a);
+    }
+  }
+
+  updateMines() {
+    for (let i = this.mines.length - 1; i &gt;= 0; i--) {
+      const m = this.mines[i];
+      m.life--; m.pulsePhase += 0.05;
+      if (m.life &lt;= 0) {
+        this.mines.splice(i, 1);
+        continue;
+      }
+      if (m.arming && !m.exploding) {
+        m.armTimer--;
+        const playerDist = this.dist(m.x, m.y, this.ship.x, this.ship.y);
+        if (playerDist &gt; CONFIG.MINE_ARM_DISTANCE && m.armTimer &lt;= 0) { m.arming = false; m.armed = true; this.createFloatingText(m.x, m.y - 20, 'ARMED', '#f80'); }
+        if (playerDist &lt;= CONFIG.MINE_ARM_DISTANCE && m.armTimer &gt; 0) { m.armTimer = Math.min(m.armTimer + 2, CONFIG.MINE_ARM_TIME); }
+      }
+      if (m.exploding) {
+        m.explodeTimer--;
+        if (m.explodeTimer &lt;= 0) {
+          this.createExplosion(m.x, m.y, 20, '#ff0', 4);
+          this.createExplosion(m.x, m.y, 15, '#f80', 3);
+          this.screenShake = 8;
+          this.mines.splice(i, 1);
+        }
+        continue;
+      }
+      if (m.armed && !m.exploding) {
+        for (let j = this.asteroids.length - 1; j &gt;= 0; j--) {
+          const a = this.asteroids[j];
+          if (this.dist(m.x, m.y, a.x, a.y) &lt; a.radius + m.radius + CONFIG.MINE_COLLISION_BUFFER) {
+            m.exploding = true; m.explodeTimer = CONFIG.MINE_EXPLOSION_TIME;
+            const newAsteroids = [];
+            if (a.size === 'large') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'medium'), this.createAsteroid(a.x, a.y, 'medium')); }
+            else if (a.size === 'medium') { newAsteroids.push(this.createAsteroid(a.x, a.y, 'small'), this.createAsteroid(a.x, a.y, 'small')); }
+            this.score += a.points;
+            this.createFloatingText(a.x, a.y, `+${a.points}`, '#f80');
+            this.asteroids.splice(j, 1); this.asteroids.push(...newAsteroids);
+            break;
+          }
+        }
+      }
+      if (m.armed && this.ship.alive && !this.isInvincible() && !m.exploding) {
+        if (this.dist(m.x, m.y, this.ship.x, this.ship.y) &lt; this.ship.radius + m.radius + CONFIG.MINE_COLLISION_BUFFER) {
+          m.exploding = true; m.explodeTimer = CONFIG.MINE_EXPLOSION_TIME;
+          this.ship.alive = false; this.ship.explodeTimer = CONFIG.SHIP_EXPLODE_FRAMES;
+          this.createExplosion(this.ship.x, this.ship.y, 40, '#f00', 5);
+          this.createExplosion(this.ship.x, this.ship.y, 20, '#ff0', 3);
+          this.screenShake = 15;
+        }
+      }
+    }
+  }
+
+  updatePowerups() {
+    for (let i = this.powerups.length - 1; i &gt;= 0; i--) {
+      const p = this.powerups[i];
+      p.life--; p.pulsePhase += 0.05;
+      p.x += p.vx * this.timeSlowFactor; p.y += p.vy * this.timeSlowFactor;
+      if (p.x &lt; -20) p.x = this.canvas.width + 20; if (p.x &gt; this.canvas.width + 20) p.x = -20;
+      if (p.y &lt; -20) p.y = this.canvas.height + 20; if (p.y &gt; this.canvas.height + 20) p.y = -20;
+      if (p.life &lt;= 0) { this.powerups.splice(i, 1); continue; }
+      if (this.ship.alive && this.dist(p.x, p.y, this.ship.x, this.ship.y) &lt; this.ship.radius + p.radius + CONFIG.POWERUP_COLLISION_BUFFER) {
+        this.powerups.splice(i, 1);
+        this.powerupFlashTimer = CONFIG.POWERUP_FLASH_LIFE;
+        switch (p.type) {
+          case 'spread': this.spreadShotTimer = CONFIG.POWER_SPREAD; this.createFloatingText(p.x, p.y, 'SPREAD SHOT!', '#0f0'); break;
+          case 'shield': this.shieldUsed = false; this.shieldTimer = CONFIG.POWER_SHIELD; this.createFloatingText(p.x, p.y, 'SHIELD!', '#0ff'); break;
+          case 'bomb': this.bombUsed = false; this.createFloatingText(p.x, p.y, 'BOMB READY!', '#f00'); break;
+          case 'extended': this.extendedRangeTimer = CONFIG.POWER_EXTENDED; this.createFloatingText(p.x, p.y, 'EXTENDED RANGE!', '#ff0'); break;
+          case 'time_slow': this.timeSlowFactor = 0.3; setTimeout(() =&gt; { this.timeSlowFactor = 1; }, CONFIG.TIME_SLOW_DURATION_MS); this.createFloatingText(p.x, p.y, 'TIME SLOW!', '#f0f'); break;
+          case 'mine': this.mineCount = Math.min(CONFIG.MINE_MAX, this.mineCount + 2); this.createFloatingText(p.x, p.y, '+2 MINES!', '#f80'); break;
+          case 'life': 
+            this.lives = Math.min(this.lives + 1, CONFIG.MAX_LIVES);
+            this.lastLifePowerupLevel = this.level;
+            this.createFloatingText(p.x, p.y, '+1 LIFE!', '#fff'); 
+            break;
+        }
+        this.createExplosion(p.x, p.y, 15, p.color, 3);
+      }
+    }
+  }
+
+  // ─── COLLISION DETECTION ───
+  checkCollisions() {
+    if (!this.ship.alive) return;
+    for (let j = this.asteroids.length - 1; j &gt;= 0; j--) {
+      const a = this.asteroids[j];
+      const collisionDist = a.radius + this.ship.radius * CONFIG.SHIP_COLLISION_RADIUS_MULT;
+      if (this.dist(this.ship.x, this.ship.y, a.x, a.y) &lt; collisionDist) {
+        if (this.shieldTimer &gt; 0) {
+          const dx = a.x - this.ship.x; const dy = a.y - this.ship.y;
+          const d = Math.sqrt(dx * dx + dy * dy) || 1;
+          const nx = dx / d; const ny = dy / d;
+          a.vx += nx * CONFIG.REPULSION_FORCE; a.vy += ny * CONFIG.REPULSION_FORCE;
+          const overlap = collisionDist - d;
+          if (overlap &gt; 0) { a.x += nx * overlap; a.y += ny * overlap; }
+          this.createExplosion(this.ship.x + nx * collisionDist, this.ship.y + ny * collisionDist, 8, '#0ff', 2);
+          this.screenShake = Math.max(this.screenShake, 2);
+        } else if (this.shipInvincible &gt; 0) {
+          continue;
+        } else {
+          this.ship.alive = false; this.ship.explodeTimer = CONFIG.SHIP_EXPLODE_FRAMES;
+          this.createExplosion(this.ship.x, this.ship.y, 40, '#f00', 5);
+          this.createExplosion(this.ship.x, this.ship.y, 20, '#ff0', 3);
+          this.screenShake = 15;
+          return;
+        }
+      }
+    }
+  }
+
+  isInvincible() { return this.shipInvincible &gt; 0 || this.shieldTimer &gt; 0; }
+
+  handlePowerupSpawning() {
+    this.powerupSpawnTimer++;
+    if (this.powerupSpawnTimer &gt;= CONFIG.POWERUP_SPAWN_INTERVAL) {
+      this.powerupSpawnTimer = 0;
+      this.spawnPowerup();
+    }
+  }
+
+  handleLevelTransition() {
+    if (this.asteroids.length === 0 && this.levelTransition &lt;= 0) this.nextLevel();
+  }
+
+  handleScreenShake() {
+    if (this.screenShake &gt; 0) this.screenShake *= CONFIG.SCREEN_SHAKE_DECAY;
+    if (this.screenShake &lt; CONFIG.SCREEN_SHAKE_THRESHOLD) this.screenShake = 0;
+  }
+
+  screenWrap(obj) {
+    if (obj.x &lt; -obj.radius) obj.x = this.canvas.width + obj.radius;
+    if (obj.x &gt; this.canvas.width + obj.radius) obj.x = -obj.radius;
+    if (obj.y &lt; -obj.radius) obj.y = this.canvas.height + obj.radius;
+    if (obj.y &gt; this.canvas.height + obj.radius) obj.y = -obj.radius;
+  }
+
+  dist(x1, y1, x2, y2) { return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2); }
+
+  updateParticles() {
+    for (let i = this.particles.length - 1; i &gt;= 0; i--) {
+      const p = this.particles[i];
+      p.x += p.vx; p.y += p.vy; p.vx *= 0.98; p.vy *= 0.98; p.life--;
+      if (p.life &lt;= 0) this.particles.splice(i, 1);
+    }
+  }
+
+  updateFloatingTexts() {
+    for (let i = this.floatingTexts.length - 1; i &gt;= 0; i--) {
+      const ft = this.floatingTexts[i]; ft.y -= 0.5; ft.life--;
+      if (ft.life &lt;= 0) this.floatingTexts.splice(i, 1);
+    }
+  }
+
+  gameOver() {
+    this.state = 'gameover';
+    if (this.score &gt; this.highScore) {
+      this.highScore = this.score;
+      localStorage.setItem('asteroidsHighScore', this.highScore);
+    }
+    document.getElementById('final-score').textContent = `SCORE: ${this.score}`;
+    document.getElementById('final-level').textContent = `REACHED LEVEL ${this.level}`;
+    document.getElementById('game-over-screen').style.display = 'block';
+  }
+
+  // ─── RENDER LOOP ───
+  draw() {
+    this.ctx.save();
+    if (this.screenShake &gt; 0) this.ctx.translate((Math.random() - 0.5) * this.screenShake * 2, (Math.random() - 0.5) * this.screenShake * 2);
+    this.ctx.fillStyle = '#000';
+    this.ctx.fillRect(-10, -10, this.canvas.width + 20, this.canvas.height + 20);
+    this.drawStars();
+
+    if (this.state === 'playing' || this.state === 'paused') {
+      this.drawAsteroids();
+      this.drawBullets();
+      this.drawMines();
+      this.drawPowerups();
+      this.drawShip();
+      this.drawParticles();
+      this.drawFloatingTexts();
+      this.drawHUD();
+      if (this.state === 'paused') this.drawPauseOverlay();
+    }
+    this.ctx.restore();
+  }
+
+  drawStars() {
+    if (!this.starsCache.length) {
+      for (let i = 0; i &lt; CONFIG.STAR_COUNT; i++) {
+        this.starsCache.push({ x: Math.random() * this.canvas.width, y: Math.random() * this.canvas.height, size: Math.random() * 1.5, brightness: 0.2 + Math.random() * 0.5 });
+      }
+    }
+    for (const s of this.starsCache) {
+      this.ctx.beginPath(); this.ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(255,255,255,${s.brightness})`; this.ctx.fill();
+    }
+  }
+
+  drawShip() {
+    if (!this.ship.alive) {
+      const progress = 1 - this.ship.explodeTimer / CONFIG.SHIP_EXPLODE_FRAMES;
+      const r = this.ship.radius * progress * 3;
+      this.ctx.beginPath(); this.ctx.arc(this.ship.x, this.ship.y, r, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(255,100,0,${1 - progress})`; this.ctx.lineWidth = 3 - progress * 2; this.ctx.stroke();
+      return;
+    }
+    if (this.respawnInvincible && this.shipInvincible &gt; 0 && Math.floor(this.shipInvincible / 5) % 2 === 0) return;
+
+    this.ctx.save();
+    this.ctx.translate(this.ship.x, this.ship.y);
+    this.ctx.rotate(this.ship.angle);
+    this.ctx.beginPath();
+    this.ctx.moveTo(this.ship.radius, 0);
+    this.ctx.lineTo(-this.ship.radius * 0.7, -this.ship.radius * 0.6);
+    this.ctx.lineTo(-this.ship.radius * 0.3, 0);
+    this.ctx.lineTo(-this.ship.radius * 0.7, this.ship.radius * 0.6);
+    this.ctx.closePath();
+    this.ctx.strokeStyle = '#fff'; this.ctx.lineWidth = 2; this.ctx.stroke();
+
+    if (this.shieldTimer &gt; 0) {
+      const shieldPulse = Math.sin(Date.now() * 0.008) * 0.15 + 0.35;
+      const shieldR = this.ship.radius + 10;
+      this.ctx.beginPath(); this.ctx.arc(0, 0, shieldR + 4, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(0,255,255,${shieldPulse * 0.15})`; this.ctx.fill();
+      this.ctx.beginPath(); this.ctx.arc(0, 0, shieldR, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(0,255,255,${shieldPulse + 0.15})`; this.ctx.lineWidth = 2.5; this.ctx.stroke();
+      this.ctx.beginPath(); this.ctx.arc(0, 0, shieldR - 3, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(0,255,255,${shieldPulse * 0.5})`; this.ctx.lineWidth = 1; this.ctx.stroke();
+      for (let i = 0; i &lt; 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + Date.now() * 0.001;
+        const x1 = Math.cos(a) * (shieldR - 5); const y1 = Math.sin(a) * (shieldR - 5);
+        const x2 = Math.cos(a + 0.5) * (shieldR + 5); const y2 = Math.sin(a + 0.5) * (shieldR + 5);
+        this.ctx.beginPath(); this.ctx.moveTo(x1, y1); this.ctx.lineTo(x2, y2);
+        this.ctx.strokeStyle = `rgba(0,255,255,${shieldPulse * 0.3})`; this.ctx.lineWidth = 1; this.ctx.stroke();
+      }
+    }
+    if (this.spreadShotTimer &gt; 0) {
+      this.ctx.beginPath(); this.ctx.arc(0, 0, this.ship.radius + 6, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(0,255,0,${0.2 + Math.sin(Date.now() * 0.02) * 0.15})`; this.ctx.lineWidth = 1; this.ctx.stroke();
+    }
+    if (this.extendedRangeTimer &gt; 0) {
+      this.ctx.beginPath(); this.ctx.arc(0, 0, this.ship.radius + 10, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(255,255,0,${0.15 + Math.sin(Date.now() * 0.02) * 0.1})`; this.ctx.lineWidth = 1;
+      this.ctx.setLineDash([4, 4]); this.ctx.stroke(); this.ctx.setLineDash([]);
+    }
+    if (this.ship.thrusting) {
+      const flicker = Math.sin(this.ship.thrustFlicker * 0.5) * 5;
+      this.ctx.beginPath(); this.ctx.moveTo(-this.ship.radius * 0.3, -this.ship.radius * 0.3);
+      this.ctx.lineTo(-this.ship.radius * 0.3 - this.ship.radius * 0.8 - flicker, 0);
+      this.ctx.lineTo(-this.ship.radius * 0.3, this.ship.radius * 0.3);
+      this.ctx.strokeStyle = '#f80'; this.ctx.lineWidth = 2; this.ctx.stroke();
+      this.ctx.beginPath(); this.ctx.moveTo(-this.ship.radius * 0.3, -this.ship.radius * 0.15);
+      this.ctx.lineTo(-this.ship.radius * 0.3 - this.ship.radius * 0.4 - flicker * 0.5, 0);
+      this.ctx.lineTo(-this.ship.radius * 0.3, this.ship.radius * 0.15);
+      this.ctx.strokeStyle = '#ff0'; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+    }
+    this.ctx.restore();
+  }
+
+  drawAsteroids() {
+    for (const a of this.asteroids) {
+      this.ctx.save(); this.ctx.translate(a.x, a.y); this.ctx.rotate(a.rotation);
+      this.ctx.beginPath(); this.ctx.moveTo(a.vertices[0].x, a.vertices[0].y);
+      for (let i = 1; i &lt; a.vertices.length; i++) this.ctx.lineTo(a.vertices[i].x, a.vertices[i].y);
+      this.ctx.closePath(); this.ctx.strokeStyle = '#aaa'; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+      this.ctx.restore();
+    }
+  }
+
+  drawBullets() {
+    for (const b of this.bullets) {
+      const alpha = Math.min(1, b.life / CONFIG.BULLET_LIFE * 1.5);
+      // Core
+      this.ctx.beginPath(); this.ctx.arc(b.x, b.y, 3, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(255,255,255,${alpha})`; this.ctx.fill();
+      // Glow
+      this.ctx.beginPath(); this.ctx.arc(b.x, b.y, 6, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(200,220,255,${alpha * 0.4})`; this.ctx.fill();
+      // Direction indicator
+      const dx = b.vx; const dy = b.vy;
+      const len = Math.sqrt(dx*dx + dy*dy);
+      if (len &gt; 0) {
+        this.ctx.beginPath();
+        this.ctx.moveTo(b.x, b.y);
+        this.ctx.lineTo(b.x - (dx/len) * 4, b.y - (dy/len) * 4);
+        this.ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.6})`;
+        this.ctx.lineWidth = 1.5;
+        this.ctx.stroke();
+      }
+    }
+  }
+
+  drawMines() {
+    for (const m of this.mines) {
+      const pulse = Math.sin(m.pulsePhase) * 0.3 + 0.7;
+      if (m.exploding) {
+        const progress = 1 - m.explodeTimer / CONFIG.MINE_EXPLOSION_TIME;
+        const r = CONFIG.MINE_EXPLOSION_RADIUS * progress;
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, r, 0, Math.PI * 2);
+        this.ctx.strokeStyle = `rgba(255,200,0,${1 - progress})`; this.ctx.lineWidth = 3 - progress * 2; this.ctx.stroke();
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, r * 0.6, 0, Math.PI * 2);
+        this.ctx.fillStyle = `rgba(255,100,0,${(1 - progress) * 0.3})`; this.ctx.fill();
+        continue;
+      }
+      if (m.arming) {
+        const blinkOn = Math.sin(m.pulsePhase / CONFIG.MINE_BLINK_RATE) &gt; 0;
+        const alpha = blinkOn ? 0.8 : 0.15;
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, m.radius + 4, 0, Math.PI * 2);
+        this.ctx.fillStyle = `rgba(255,136,0,${alpha * 0.2})`; this.ctx.fill();
+        this.ctx.strokeStyle = `rgba(255,136,0,${alpha})`; this.ctx.lineWidth = 2; this.ctx.stroke();
+        const s = m.radius * 0.5;
+        this.ctx.beginPath(); this.ctx.moveTo(m.x - s, m.y); this.ctx.lineTo(m.x + s, m.y);
+        this.ctx.moveTo(m.x, m.y - s); this.ctx.lineTo(m.x, m.y + s);
+        this.ctx.strokeStyle = `rgba(255,200,0,${alpha})`; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+        const progress = 1 - m.armTimer / CONFIG.MINE_ARM_TIME;
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, m.radius + 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+        this.ctx.strokeStyle = `rgba(255,200,0,${alpha * 0.6})`; this.ctx.lineWidth = 2; this.ctx.stroke();
+        if (progress &gt; 0.3) {
+          this.ctx.font = '9px Courier New'; this.ctx.fillStyle = `rgba(255,200,0,${alpha * 0.8})`;
+          this.ctx.textAlign = 'center'; this.ctx.fillText('ARMIN', m.x, m.y - m.radius - 14);
+        }
+      } else if (m.armed) {
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2);
+        this.ctx.fillStyle = `rgba(255,136,0,${pulse * 0.3})`; this.ctx.fill();
+        this.ctx.strokeStyle = `rgba(255,136,0,${pulse})`; this.ctx.lineWidth = 2; this.ctx.stroke();
+        const s = m.radius * 0.5;
+        this.ctx.beginPath(); this.ctx.moveTo(m.x - s, m.y); this.ctx.lineTo(m.x + s, m.y);
+        this.ctx.moveTo(m.x, m.y - s); this.ctx.lineTo(m.x, m.y + s);
+        this.ctx.strokeStyle = `rgba(255,200,0,${pulse})`; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+        this.ctx.beginPath(); this.ctx.arc(m.x, m.y, m.radius + 4, 0, Math.PI * 2);
+        this.ctx.strokeStyle = `rgba(255,136,0,${pulse * 0.2})`; this.ctx.lineWidth = 1; this.ctx.stroke();
+        this.ctx.font = '9px Courier New'; this.ctx.fillStyle = `rgba(255,200,0,${pulse * 0.7})`;
+        this.ctx.textAlign = 'center'; this.ctx.fillText('ARMED', m.x, m.y - m.radius - 14);
+      }
+    }
+  }
+
+  drawPowerups() {
+    for (const p of this.powerups) {
+      const pulse = Math.sin(p.pulsePhase) * 0.3 + 0.7;
+      const alpha = p.life &lt; 180 ? (Math.sin(p.life * 0.15) * 0.5 + 0.5) : 1;
+      this.ctx.save(); this.ctx.translate(p.x, p.y);
+      const hex = p.color;
+      const r = parseInt(hex.slice(1, 3), 16); const g = parseInt(hex.slice(3, 5), 16); const b = parseInt(hex.slice(5, 7), 16);
+      this.ctx.beginPath(); this.ctx.arc(0, 0, p.radius + 8, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(${r},${g},${b},${pulse * 0.1})`; this.ctx.fill();
+      const rotAngle = Date.now() * 0.003;
+      this.ctx.beginPath(); this.ctx.arc(0, 0, p.radius + 4, rotAngle, rotAngle + Math.PI * 1.5);
+      this.ctx.strokeStyle = `rgba(${r},${g},${b},${pulse * alpha * 0.5})`; this.ctx.lineWidth = 1.5; this.ctx.stroke();
+      this.ctx.beginPath(); this.ctx.arc(0, 0, p.radius, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `rgba(${r},${g},${b},${pulse * alpha})`; this.ctx.lineWidth = 2; this.ctx.stroke();
+      this.ctx.font = 'bold 14px Courier New'; this.ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle'; this.ctx.fillText(p.label, 0, 0);
+      this.ctx.restore();
+    }
+  }
+
+  drawParticles() {
+    for (const p of this.particles) {
+      const alpha = p.life / p.maxLife;
+      this.ctx.globalAlpha = alpha;
+      this.ctx.beginPath(); this.ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+      this.ctx.fillStyle = p.color; this.ctx.fill();
+      this.ctx.globalAlpha = 1;
+    }
+  }
+
+  drawFloatingTexts() {
+    for (const ft of this.floatingTexts) {
+      const alpha = ft.life / ft.maxLife;
+      this.ctx.globalAlpha = alpha;
+      this.ctx.font = 'bold 20px Courier New'; this.ctx.fillStyle = ft.color;
+      this.ctx.textAlign = 'center'; this.ctx.fillText(ft.text, ft.x, ft.y);
+      this.ctx.globalAlpha = 1;
+    }
+  }
+
+  drawHUD() {
+    this.drawActivePowerups();
+
+    this.ctx.font = 'bold 24px Courier New'; this.ctx.fillStyle = '#fff'; this.ctx.textAlign = 'left';
+    this.ctx.fillText(`SCORE: ${this.score}`, 20, 35);
+    this.ctx.font = '16px Courier New'; this.ctx.fillStyle = '#888';
+    this.ctx.fillText(`HI: ${this.highScore}`, 20, 58);
+    this.ctx.font = 'bold 20px Courier New'; this.ctx.fillStyle = '#0ff'; this.ctx.textAlign = 'center';
+    this.ctx.fillText(`LEVEL ${this.level}`, this.canvas.width / 2, 35);
+    
+    const livesPerRow = 3;
+    const maxLives = CONFIG.MAX_LIVES;
+    const livesToDraw = Math.min(this.lives, maxLives);
+    const rows = Math.ceil(livesToDraw / livesPerRow);
+    for (let r = 0; r &lt; rows; r++) {
+      for (let i = 0; i &lt; livesPerRow; i++) {
+        const idx = r * livesPerRow + i;
+        if (idx &gt;= livesToDraw) break;
+        const lx = this.canvas.width - 80 + i * 30;
+        const ly = 30 + r * 35;
+        this.ctx.save();
+        this.ctx.translate(lx, ly);
+        this.ctx.rotate(-Math.PI / 2);
+        this.ctx.beginPath();
+        this.ctx.moveTo(CONFIG.SHIP_SIZE * 0.5, 0);
+        this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.35, -CONFIG.SHIP_SIZE * 0.3);
+        this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.15, 0);
+        this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.35, CONFIG.SHIP_SIZE * 0.3);
+        this.ctx.closePath();
+        this.ctx.strokeStyle = '#fff';
+        this.ctx.lineWidth = 1.5;
+        this.ctx.stroke();
+        this.ctx.restore();
+      }
+    }
+    
+    this.ctx.textAlign = 'right'; this.ctx.font = '14px Courier New'; this.ctx.fillStyle = '#666';
+    this.ctx.fillText(`ASTEROIDS: ${this.asteroids.length}`, this.canvas.width - 20, this.canvas.height - 15);
+
+    let timerY = CONFIG.HUD_TOP_MARGIN; this.ctx.textAlign = 'left'; this.ctx.font = '14px Courier New';
+    if (this.spreadShotTimer &gt; 0) { this.ctx.fillStyle = '#0f0'; this.ctx.fillText(`SPREAD: ${Math.ceil(this.spreadShotTimer / 60)}s`, 20, timerY); timerY += CONFIG.HUD_LINE_HEIGHT; }
+    if (this.extendedRangeTimer &gt; 0) { this.ctx.fillStyle = '#ff0'; this.ctx.fillText(`RANGE: ${Math.ceil(this.extendedRangeTimer / 60)}s`, 20, timerY); timerY += CONFIG.HUD_LINE_HEIGHT; }
+    if (this.shieldTimer &gt; 0) { this.ctx.fillStyle = '#0ff'; this.ctx.fillText(`SHIELD: ${Math.ceil(this.shieldTimer / 60)}s`, 20, timerY); timerY += CONFIG.HUD_LINE_HEIGHT; }
+    if (this.timeSlowFactor &lt; 1) { this.ctx.fillStyle = '#f0f'; this.ctx.fillText(`SLOW TIME!`, 20, timerY); timerY += CONFIG.HUD_LINE_HEIGHT; }
+
+    this.ctx.fillStyle = '#888'; this.ctx.font = '13px Courier New'; timerY = CONFIG.HUD_TOP_MARGIN;
+    const portalReady = this.portalCooldown &lt;= 0;
+    this.ctx.fillStyle = portalReady ? '#0ff' : '#f00';
+    this.ctx.fillText(`PORTAL: ${portalReady ? 'READY' : `${Math.ceil(this.portalCooldown / 60)}s`}`, 20, timerY);
+    timerY += 16;
+    this.ctx.fillStyle = this.mineCount &gt; 0 ? '#f80' : '#888';
+    this.ctx.fillText(`MINES: ${this.mineCount}/${CONFIG.MINE_MAX} (${this.mines.length} active)`, 20, timerY);
+    timerY += 16;
+    this.ctx.fillStyle = !this.bombUsed ? '#f00' : '#888';
+    this.ctx.fillText(`BOMB: ${this.bombUsed ? 'USED' : 'READY'}`, 20, timerY);
+    timerY += 16;
+    this.ctx.fillStyle = !this.shieldUsed ? '#0ff' : '#888';
+    this.ctx.fillText(`SHIELD: ${this.shieldUsed ? 'USED' : 'READY'}`, 20, timerY);
+
+    if (this.levelTransition &gt; 0) {
+      this.levelTransition--;
+      const alpha = Math.min(1, this.levelTransition / 30);
+      this.ctx.globalAlpha = alpha;
+      this.ctx.font = 'bold 48px Courier New'; this.ctx.fillStyle = '#0ff'; this.ctx.textAlign = 'center';
+      this.ctx.fillText(`LEVEL ${this.level}`, this.canvas.width / 2, this.canvas.height / 2 - 20);
+      this.ctx.font = '20px Courier New'; this.ctx.fillStyle = '#fff';
+      this.ctx.fillText('Get Ready!', this.canvas.width / 2, this.canvas.height / 2 + 20);
+      this.ctx.globalAlpha = 1;
+    }
+    if (this.powerupFlashTimer &gt; 0) {
+      this.ctx.fillStyle = `rgba(255,255,255,${this.powerupFlashTimer / 60 * 0.15})`;
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+
+    const stripY = this.canvas.height - CONFIG.HUD_BOTTOM_MARGIN;
+    this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    this.ctx.fillRect(0, stripY - 2, this.canvas.width, 32);
+    this.ctx.strokeStyle = 'rgba(100,100,100,0.3)'; this.ctx.lineWidth = 1;
+    this.ctx.beginPath(); this.ctx.moveTo(0, stripY - 2); this.ctx.lineTo(this.canvas.width, stripY - 2); this.ctx.stroke();
+    this.ctx.font = '13px Courier New'; this.ctx.textAlign = 'center';
+    const stripText = '←→ROTATE  ↑THRUST  SPACE:FIRE  Z:PORTAL(30s)  X:MINE(3)  C:SPREAD  V:SHIELD  B:BOMB  N:RANGE  M:TIMESLOW  P:PAUSE  R:RESTART';
+    this.ctx.fillStyle = 'rgba(220,220,220,0.95)';
+    this.ctx.fillText(stripText, this.canvas.width / 2, stripY + 16);
+  }
+
+  drawActivePowerups() {
+    let y = 55;
+    const centerX = this.canvas.width / 2;
+    this.ctx.font = 'bold 16px Courier New';
+    this.ctx.textAlign = 'center';
+
+    if (this.spreadShotTimer &gt; 0) {
+      const remaining = Math.ceil(this.spreadShotTimer / CONFIG.FPS);
+      this.ctx.fillStyle = '#0f0';
+      this.ctx.fillText(`SPREAD SHOT (${remaining}s)`, centerX, y);
+      y += CONFIG.HUD_LINE_HEIGHT;
+    }
+    if (this.extendedRangeTimer &gt; 0) {
+      const remaining = Math.ceil(this.extendedRangeTimer / CONFIG.FPS);
+      this.ctx.fillStyle = '#ff0';
+      this.ctx.fillText(`EXTENDED RANGE (${remaining}s)`, centerX, y);
+      y += CONFIG.HUD_LINE_HEIGHT;
+    }
+    if (this.shieldTimer &gt; 0) {
+      const remaining = Math.ceil(this.shieldTimer / CONFIG.FPS);
+      this.ctx.fillStyle = '#0ff';
+      this.ctx.fillText(`SHIELD (${remaining}s)`, centerX, y);
+      y += CONFIG.HUD_LINE_HEIGHT;
+    }
+    if (this.timeSlowFactor &lt; 1) {
+      this.ctx.fillStyle = '#f0f';
+      this.ctx.fillText(`TIME SLOW!`, centerX, y);
+      y += CONFIG.HUD_LINE_HEIGHT;
+    }
+  }
+
+  drawPauseOverlay() {
+    this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.font = 'bold 48px Courier New'; this.ctx.fillStyle = '#fff'; this.ctx.textAlign = 'center';
+    this.ctx.fillText('PAUSED', this.canvas.width / 2, this.canvas.height / 2);
+    this.ctx.font = '20px Courier New';
+    this.ctx.fillText('Press P to resume', this.canvas.width / 2, this.canvas.height / 2 + 40);
+  }
+
+  loop() {
+    this.update();
+    this.draw();
+    requestAnimationFrame(() =&gt; this.loop());
+  }
+}
+
+// Initialize game (global scope remains clean)
+const game = new Game();
+&lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+```
+
+### User
+update `EXTENDED_RANGE_MAX_DIST: 900, // Tripled from 300 to strictly double range`
+
+no need to output full html this time, just note the small patch
+
+### Assistant
+The user wants a small patch to fix a comment in the configuration.
+The current comment says `EXTENDED_RANGE_MAX_DIST: 900, // Tripled from 300 to strictly double range`.
+This is contradictory (900 is tripled, but the comment says "strictly double").
+The user wants it changed to `EXTENDED_RANGE_MAX_DIST: 900, // Tripled from 300`.
+I will provide just the configuration update.
+
+&lt;/think&gt;
+
+
+Here is the targeted patch for the configuration comment:
+
+```javascript
+  // Range & Distances
+  NORMAL_RANGE_MAX_DIST: 300,
+  EXTENDED_RANGE_MAX_DIST: 900, // Tripled from 300
 ```
