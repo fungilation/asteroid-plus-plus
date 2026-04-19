@@ -192,7 +192,7 @@
 
         // Range & Distances
         NORMAL_RANGE_MAX_DIST: 300,
-        EXTENDED_RANGE_MAX_DIST: 900,
+        EXTENDED_RANGE_MAX_DIST: 900, // Tripled from 300 to strictly double range
 
         // Visual & FX
         SCREEN_SHAKE_DECAY: 0.8,
@@ -210,6 +210,10 @@
         HUD_LINE_HEIGHT: 18,
         HUD_TOP_MARGIN: 70,
         HUD_BOTTOM_MARGIN: 35,
+
+        // Life Power-up
+        LIFE_POWERUP_COOLDOWN_LEVELS: 2,
+        MAX_LIVES: 9,
       };
 
       /**
@@ -233,6 +237,7 @@
           this.lives = 3;
           this.highScore =
             parseInt(localStorage.getItem("asteroidsHighScore")) || 0;
+          this.lastLifePowerupLevel = 0;
 
           // Entities
           this.ship = null;
@@ -294,7 +299,7 @@
             if (e.code === "KeyR") {
               this.state = "playing";
               this.hideGameOverScreen();
-              this.init();
+              this.init(); // Resets everything exactly like a browser refresh
             }
           });
           document.addEventListener("keyup", (e) => {
@@ -325,7 +330,8 @@
           this.levelTransition = 0;
           this.screenShake = 0;
           this.portalCooldown = 0;
-          this.mineCount = 1; // Start with 1 carried mine
+          this.mineCount = 1;
+          this.lastLifePowerupLevel = 0; // Resets on restart/refresh
           this.powerupSpawnTimer = 0;
           this.timeSlowFactor = 1;
           this.spreadShotTimer = 0;
@@ -374,8 +380,22 @@
             "extended",
             "time_slow",
             "mine",
+            "life",
           ];
-          const type = types[Math.floor(Math.random() * types.length)];
+          let type = types[Math.floor(Math.random() * types.length)];
+
+          const levelsSinceLast = Math.max(
+            0,
+            this.level - this.lastLifePowerupLevel,
+          );
+          if (
+            type === "life" &&
+            levelsSinceLast < CONFIG.LIFE_POWERUP_COOLDOWN_LEVELS
+          ) {
+            const otherTypes = types.filter((t) => t !== "life");
+            type = otherTypes[Math.floor(Math.random() * otherTypes.length)];
+          }
+
           let x, y;
           do {
             x = 80 + Math.random() * (this.canvas.width - 160);
@@ -471,10 +491,19 @@
             "extended",
             "time_slow",
             "mine",
+            "life",
           ];
           const typeIdx = types.indexOf(type);
-          const colors = ["#0f0", "#0ff", "#f00", "#ff0", "#f0f", "#f80"];
-          const labels = ["≡", "○", "●", "⌇", "∞", "◆"];
+          const colors = [
+            "#0f0",
+            "#0ff",
+            "#f00",
+            "#ff0",
+            "#f0f",
+            "#f80",
+            "#fff",
+          ];
+          const labels = ["≡", "○", "●", "⌇", "∞", "◆", "♥"];
           return {
             x,
             y,
@@ -577,7 +606,7 @@
                 this.timeSlowFactor = 1;
                 this.bombUsed = false;
                 this.shieldUsed = false;
-                this.mineCount = 1; // Reset carried mines on respawn
+                this.mineCount = 1;
                 this.createFloatingText(
                   this.canvas.width / 2,
                   this.canvas.height / 2,
@@ -702,7 +731,6 @@
           }
           if (this.portalCooldown > 0) this.portalCooldown--;
 
-          // Deploy mine logic fixed
           if (this.keys["KeyX"] && this.mineCount > 0) {
             this.keys["KeyX"] = false;
             this.mineCount--;
@@ -880,7 +908,6 @@
             m.pulsePhase += 0.05;
             if (m.life <= 0) {
               this.mines.splice(i, 1);
-              // mineCount is NOT decremented here, it represents carried mines
               continue;
             }
             if (m.arming && !m.exploding) {
@@ -902,7 +929,6 @@
                 this.createExplosion(m.x, m.y, 15, "#f80", 3);
                 this.screenShake = 8;
                 this.mines.splice(i, 1);
-                // mineCount is NOT decremented here
               }
               continue;
             }
@@ -1010,6 +1036,11 @@
                     this.mineCount + 2,
                   );
                   this.createFloatingText(p.x, p.y, "+2 MINES!", "#f80");
+                  break;
+                case "life":
+                  this.lives = Math.min(this.lives + 1, CONFIG.MAX_LIVES);
+                  this.lastLifePowerupLevel = this.level;
+                  this.createFloatingText(p.x, p.y, "+1 LIFE!", "#fff");
                   break;
               }
               this.createExplosion(p.x, p.y, 15, p.color, 3);
@@ -1303,15 +1334,29 @@
 
         drawBullets() {
           for (const b of this.bullets) {
-            const alpha = b.life / CONFIG.BULLET_LIFE;
+            const alpha = Math.min(1, (b.life / CONFIG.BULLET_LIFE) * 1.5);
+            // Core
             this.ctx.beginPath();
-            this.ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+            this.ctx.arc(b.x, b.y, 3, 0, Math.PI * 2);
             this.ctx.fillStyle = `rgba(255,255,255,${alpha})`;
             this.ctx.fill();
+            // Glow
             this.ctx.beginPath();
-            this.ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
-            this.ctx.fillStyle = `rgba(200,200,255,${alpha * 0.3})`;
+            this.ctx.arc(b.x, b.y, 6, 0, Math.PI * 2);
+            this.ctx.fillStyle = `rgba(200,220,255,${alpha * 0.4})`;
             this.ctx.fill();
+            // Direction indicator
+            const dx = b.vx;
+            const dy = b.vy;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            if (len > 0) {
+              this.ctx.beginPath();
+              this.ctx.moveTo(b.x, b.y);
+              this.ctx.lineTo(b.x - (dx / len) * 4, b.y - (dy / len) * 4);
+              this.ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.6})`;
+              this.ctx.lineWidth = 1.5;
+              this.ctx.stroke();
+            }
           }
         }
 
@@ -1466,10 +1511,8 @@
         }
 
         drawHUD() {
-          // Draw active power-ups centered at top (below LEVEL display)
           this.drawActivePowerups();
 
-          // Draw standard HUD elements
           this.ctx.font = "bold 24px Courier New";
           this.ctx.fillStyle = "#fff";
           this.ctx.textAlign = "left";
@@ -1481,27 +1524,36 @@
           this.ctx.fillStyle = "#0ff";
           this.ctx.textAlign = "center";
           this.ctx.fillText(`LEVEL ${this.level}`, this.canvas.width / 2, 35);
-          this.ctx.textAlign = "right";
-          this.ctx.font = "bold 24px Courier New";
-          this.ctx.fillStyle = "#fff";
-          this.ctx.fillText(`LIVES:`, this.canvas.width - 100, 35);
-          for (let i = 0; i < this.lives; i++) {
-            const lx = this.canvas.width - 80 + i * 30;
-            const ly = 30;
-            this.ctx.save();
-            this.ctx.translate(lx, ly);
-            this.ctx.rotate(-Math.PI / 2);
-            this.ctx.beginPath();
-            this.ctx.moveTo(CONFIG.SHIP_SIZE * 0.5, 0);
-            this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.35, -CONFIG.SHIP_SIZE * 0.3);
-            this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.15, 0);
-            this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.35, CONFIG.SHIP_SIZE * 0.3);
-            this.ctx.closePath();
-            this.ctx.strokeStyle = "#fff";
-            this.ctx.lineWidth = 1.5;
-            this.ctx.stroke();
-            this.ctx.restore();
+
+          const livesPerRow = 3;
+          const maxLives = CONFIG.MAX_LIVES;
+          const livesToDraw = Math.min(this.lives, maxLives);
+          const rows = Math.ceil(livesToDraw / livesPerRow);
+          for (let r = 0; r < rows; r++) {
+            for (let i = 0; i < livesPerRow; i++) {
+              const idx = r * livesPerRow + i;
+              if (idx >= livesToDraw) break;
+              const lx = this.canvas.width - 80 + i * 30;
+              const ly = 30 + r * 35;
+              this.ctx.save();
+              this.ctx.translate(lx, ly);
+              this.ctx.rotate(-Math.PI / 2);
+              this.ctx.beginPath();
+              this.ctx.moveTo(CONFIG.SHIP_SIZE * 0.5, 0);
+              this.ctx.lineTo(
+                -CONFIG.SHIP_SIZE * 0.35,
+                -CONFIG.SHIP_SIZE * 0.3,
+              );
+              this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.15, 0);
+              this.ctx.lineTo(-CONFIG.SHIP_SIZE * 0.35, CONFIG.SHIP_SIZE * 0.3);
+              this.ctx.closePath();
+              this.ctx.strokeStyle = "#fff";
+              this.ctx.lineWidth = 1.5;
+              this.ctx.stroke();
+              this.ctx.restore();
+            }
           }
+
           this.ctx.textAlign = "right";
           this.ctx.font = "14px Courier New";
           this.ctx.fillStyle = "#666";
@@ -1511,7 +1563,6 @@
             this.canvas.height - 15,
           );
 
-          // Draw status text on left side (no overlap with active power-ups)
           let timerY = CONFIG.HUD_TOP_MARGIN;
           this.ctx.textAlign = "left";
           this.ctx.font = "14px Courier New";
@@ -1606,7 +1657,6 @@
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
           }
 
-          // Draw bottom row key hints - properly centered
           const stripY = this.canvas.height - CONFIG.HUD_BOTTOM_MARGIN;
           this.ctx.fillStyle = "rgba(0,0,0,0.5)";
           this.ctx.fillRect(0, stripY - 2, this.canvas.width, 32);
@@ -1621,13 +1671,11 @@
           const stripText =
             "←→ROTATE  ↑THRUST  SPACE:FIRE  Z:PORTAL(30s)  X:MINE(3)  C:SPREAD  V:SHIELD  B:BOMB  N:RANGE  M:TIMESLOW  P:PAUSE  R:RESTART";
           this.ctx.fillStyle = "rgba(220,220,220,0.95)";
-          // Center the text properly at the center of the screen
           this.ctx.fillText(stripText, this.canvas.width / 2, stripY + 16);
         }
 
-        // Draw active power-ups centered at top of screen
         drawActivePowerups() {
-          let y = 55; // Start below LEVEL display
+          let y = 55;
           const centerX = this.canvas.width / 2;
           this.ctx.font = "bold 16px Courier New";
           this.ctx.textAlign = "center";
